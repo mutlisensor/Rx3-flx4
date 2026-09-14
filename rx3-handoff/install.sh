@@ -5,6 +5,7 @@
 #   ./install.sh doctor   check prerequisites only, change nothing
 #   ./install.sh          full install (binaries, udev rules, systemd unit)
 #   ./install.sh desktop  stop the player and hand the Pi back to its desktop
+#   ./install.sh strays   remove only the stray "$RX3_..." directories an older script version left behind
 #   ./install.sh clean    remove everything a previous install left behind (keeps the recovered firmware)
 #   ./install.sh clean --all   ... and the recovered firmware too
 set -uo pipefail
@@ -13,6 +14,26 @@ ok(){ printf '  \033[32mok\033[0m   %s\n' "$1"; }
 bad(){ printf '  \033[31mMISS\033[0m %s\n' "$1"; FAIL=1; }
 warn(){ printf '  \033[33mwarn\033[0m %s\n' "$1"; }
 FAIL=0
+
+# Directories literally named after a shell variable ($RX3_ROOT, $RX3_USERHOME, ...): scripts between 11 and 14 Sep
+# 2026 expanded variables inside quoted Python heredocs, so Python created paths with the literal text, relative to
+# whatever the working directory was (the filesystem root under systemd, the handoff dir when run by hand).
+stray_dirs(){
+  for base in / "$RX3_HOME" "$RX3_USERHOME" "$(pwd)"; do
+    for name in '$RX3_ROOT' '$RX3_USERHOME' '$RX3_HOME' '$RX3_USB' '$RX3_BINDIR' '$RX3_LOGDIR' '$R' '$H' '$U'; do
+      d="${base%/}/$name"; [ -e "$d" ] && echo "$d"
+    done
+  done | sort -u
+}
+remove_strays(){ stray_dirs | while IFS= read -r d; do sudo rm -rf -- "$d" && echo "  removed $d"; done; }
+
+if [ "${1:-}" = strays ]; then
+  found=$(stray_dirs)
+  [ -z "$found" ] && { echo "No stray directories found (looked in /, $RX3_HOME, $RX3_USERHOME and $(pwd))."; exit 0; }
+  echo "Directories literally named after a variable, left by an older script version:"; echo "$found" | sed 's/^/  /'
+  printf "Remove them? [y/N] "; read -r a; [ "$a" = y ] || [ "$a" = Y ] || { echo "aborted"; exit 1; }
+  sudo -v || exit 1; remove_strays; exit 0
+fi
 
 echo "RX3 layout"
 echo "  tools   $RX3_HOME"
@@ -74,9 +95,7 @@ python3 -c "import cryptography" 2>/dev/null && ok "python3 cryptography" || { w
 have 7z || have bsdtar || { warn "7z missing (needed by recover-firmware.py to unpack the ISO)"; MISSING="$MISSING p7zip-full"; }
 echo
 
-for d in "$RX3_HOME"/'$RX3_'* "$RX3_HOME"/'$R' "$RX3_HOME"/'$H'; do
-  [ -e "$d" ] && warn "stray directory $d was created by an older script that expanded a variable inside a quoted heredoc; git pull, then ./install.sh clean"
-done
+stray_dirs | while IFS= read -r d; do warn "stray directory $d (left by an older script; remove with ./install.sh strays)"; done
 echo "Recovered firmware"
 RF="$RX3_HOME/extracted/runtime-files"
 NFILES=$( [ -d "$RF" ] && find "$RF" -type f 2>/dev/null | head -2000 | wc -l || echo 0 )
@@ -115,7 +134,7 @@ if [ "${1:-}" = clean ]; then
   echo "  $RX3_USB (USB copy-on-write layers: your sticks are untouched, only the firmware's edits to them)"
   echo "  $RX3_BINDIR/rx3-fb-present, rx3-touch-bridge, $RX3_LOGDIR/rx3-*.log, pi-runtime/, rbp-pi, build/"
   [ $ALL = 1 ] && echo "  extracted/, runtime-symlinks.json, the downloaded firmware and source ZIPs (--all)"
-  for d in "$RX3_HOME"/'$RX3_'* "$RX3_HOME"/'$R' "$RX3_HOME"/'$H'; do [ -e "$d" ] && echo "  stray directory from an old script: $d"; done
+  stray_dirs | sed 's/^/  stray directory from an old script: /' 
   printf "Continue? [y/N] "; read -r a; [ "$a" = y ] || [ "$a" = Y ] || { echo "aborted"; exit 1; }
   sudo systemctl disable --now rx3 2>/dev/null
   sudo systemctl stop rx3-priv rx3-pointer 'rx3-overlay-*' 'rx3-hotkeys-*' 2>/dev/null
@@ -123,7 +142,8 @@ if [ "${1:-}" = clean ]; then
   sudo systemctl daemon-reload; sudo udevadm control --reload
   for m in $(findmnt -rn -o TARGET | grep -E "^($RX3_ROOT|$RX3_USB)/" | sort -r); do sudo umount -l "$m" 2>/dev/null; done
   sudo rm -rf "$RX3_ROOT" "$RX3_USB" "$RX3_BINDIR/rx3-fb-present" "$RX3_BINDIR/rx3-touch-bridge" "$RX3_LOGDIR"/rx3-*.log \
-    "$RX3_HOME/pi-runtime" "$RX3_HOME/rbp-pi" "$RX3_HOME/build" "$RX3_HOME/__pycache__" "$RX3_HOME"/'$RX3_'* "$RX3_HOME"/'$R' "$RX3_HOME"/'$H'
+    "$RX3_HOME/pi-runtime" "$RX3_HOME/rbp-pi" "$RX3_HOME/build" "$RX3_HOME/__pycache__"
+  remove_strays
   [ $ALL = 1 ] && sudo rm -rf "$RX3_HOME/extracted" "$RX3_HOME/runtime-symlinks.json" "$RX3_HOME"/official-source-*.zip "$RX3_HOME"/XDJ-RX3_*.zip "$RX3_HOME/aes256.key"
   ok "clean. Next: git pull, then ./install.sh doctor"
   exit 0
