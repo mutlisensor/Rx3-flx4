@@ -267,11 +267,12 @@ of leaving you an empty directory.
 Do not run it directly. It expects `pi-runtime/rbp`, which `build-rootfs.sh` puts there by copying
 the recovered player just before calling it. Run `./build-rootfs.sh` instead.
 
-**`FileNotFoundError: '$RX3_ROOT/dev/rx3-ui-state'` in the journal, or a directory literally named `$RX3_USERHOME` appearing in `rx3-handoff`**
+**`FileNotFoundError: '$RX3_ROOT/dev/rx3-ui-state'` in the journal, or directories literally named `$RX3_ROOT` / `$RX3_USERHOME` / `$R` appearing in the filesystem root, your home, or `rx3-handoff`**
 A bug in the scripts between 11 and 14 September 2026: a variable was written inside a single-quoted
-Python heredoc, which the shell never expands, so Python received the literal text. Fixed on every
-branch. `git pull`, then `./install.sh clean` (it deletes the stray directory too), then reinstall.
-`./install.sh doctor` now warns if it sees such a directory.
+Python heredoc, which the shell never expands, so Python received the literal text and created paths
+relative to wherever it was running (the filesystem root under systemd). Fixed on every branch.
+`git pull`, then `./install.sh strays` to delete just those directories (it lists them and asks first), or
+`./install.sh clean` for a full reset. `./install.sh doctor` warns whenever it sees one.
 
 **"Everything is hardcoded to /home/rx3 or /home/pompu_5."**
 Fixed. Paths are resolved at runtime by `rx3-env.sh` and `rx3_env.py` from the location of the
