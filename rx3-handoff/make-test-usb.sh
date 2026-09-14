@@ -3,11 +3,12 @@
 set -e
 . "$(dirname "$(readlink -f "$0")")/rx3-env.sh"
 IMG=$RX3_USERHOME/rx3-test-usb.img
-python3 - <<'PY'
+# The heredoc is quoted on purpose (Python code), so paths come in through the environment, not by expansion.
+RX3_USERHOME="$RX3_USERHOME" python3 - <<'PY'
 import struct,math,wave,os
-os.makedirs('$RX3_USERHOME/test-tracks',exist_ok=True)
+d=os.path.join(os.environ['RX3_USERHOME'],'test-tracks'); os.makedirs(d,exist_ok=True)
 for name,freq,secs in (('Tone A 440',440,60),('Tone B 660',660,60)):
-    w=wave.open('$RX3_USERHOME/test-tracks/%s.wav'%name,'wb'); w.setnchannels(2); w.setsampwidth(2); w.setframerate(44100)
+    w=wave.open(os.path.join(d,'%s.wav'%name),'wb'); w.setnchannels(2); w.setsampwidth(2); w.setframerate(44100)
     frames=bytearray()
     for i in range(44100*secs):
         beat=1.0 if (i%(44100*60//128))<3000 else 0.3   # 128 BPM click envelope

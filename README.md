@@ -9,6 +9,9 @@ builder, launch and shutdown scripts, the `LD_PRELOAD` shims that stand in for t
 hardware, a MIDI bridge that maps the FLX4 onto the firmware's internal key events, USB media
 handling with copy-on-write, and the notes that document everything non-obvious.
 
+Branches: `main` (HDMI layout), `7inch` (Touch Display 2 layout), `Dev_tools` (debug aids: keyboard hotkeys
+to stop/restart the player and dump diagnostics, `install.sh clean`, `rx3-logs.sh`).
+
 Status: working daily-driver setup. See [`STATUS.md`](STATUS.md) for the feature-by-feature list.
 
 ## Firmware is not included

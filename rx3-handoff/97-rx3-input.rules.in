@@ -1,3 +1,4 @@
-# USB mouse / touchscreen hot-plug: (re)start the pointer bridge for the RX3 screen.
+# USB mouse / touchscreen / keyboard hot-plug: (re)start the pointer bridge and the debug hotkeys.
 ACTION=="add", SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_MOUSE}=="1", RUN+="/usr/bin/systemd-run --no-block @RX3_HOME@/input-hotplug.sh"
 ACTION=="add", SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_TOUCHSCREEN}=="1", RUN+="/usr/bin/systemd-run --no-block @RX3_HOME@/input-hotplug.sh"
+ACTION=="add", SUBSYSTEM=="input", KERNEL=="event*", ENV{ID_INPUT_KEYBOARD}=="1", RUN+="/usr/bin/systemd-run --no-block @RX3_HOME@/input-hotplug.sh"

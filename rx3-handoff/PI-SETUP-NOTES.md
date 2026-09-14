@@ -20,6 +20,16 @@
 - On the TD2 the firmware UI ends up 960x600 px in a 1152x720 picture. `--replay` (rx3-tap.py) and
   `--mouse` feed canvas coordinates directly, independent of the panel.
 
+## Quoted heredocs and udev cgroups (two traps, both hit)
+
+- A `$RX3_*` variable inside a `<<'PY'` heredoc is never expanded: rx3-start.sh created no ui-state and
+  make-test-usb.sh created a directory literally named `$RX3_USERHOME`. Pass paths to Python through the
+  environment or argv; `install.sh doctor` warns about stray `$RX3_*` directories and `clean` removes them.
+- Anything started by a udev helper dies with the helper's transient unit (this is what killed the USB
+  overlays earlier); the pointer bridge and the keyboard hotkeys now run as their own units
+  (`rx3-pointer`, `rx3-hotkeys-eventN`), the latter deliberately outside rx3.service so ESC/F5 work
+  while the player is stopped. Tested with a uinput virtual keyboard (see the Dev_tools commit).
+
 ## Paths and identity are resolved, not hardcoded
 
 `rx3-env.sh` (shell) and `rx3_env.py` (Python) work out the layout at run time, so no username,

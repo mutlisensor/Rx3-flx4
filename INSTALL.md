@@ -95,6 +95,25 @@ appears on the display. A USB mouse works as a pointer until you attach a touchs
 
 ---
 
+# Debug tools
+
+**Keyboard hotkeys.** Plug in any USB keyboard, before or after boot. The firmware never sees it; a small
+watcher does, and it keeps running even when the player is stopped:
+
+| Key | Effect |
+|---|---|
+| **ESC held for 1 s** | Stop the player (`systemctl stop rx3`). The screen drops to the text console. |
+| **F5** | Restart the player. |
+| **F12** | Write a diagnostic snapshot to `~/rx3-diag-<date>.txt`: journal, processes, mounts, sound cards, USB, throttling, and the tails of every rx3 log. Attach that file when reporting a hang. |
+
+**Logs.** `./rx3-logs.sh` follows the player, the USB helpers and the kernel in one stream.
+
+**Cleaning up a previous install.** `./install.sh clean` removes everything an earlier install put on the
+machine (units, udev rules, the chroot, the USB overlay layers, binaries, logs) and keeps the recovered
+firmware; `./install.sh clean --all` removes that too. Run it before reinstalling if things behave oddly.
+
+---
+
 # Display: HDMI or the Raspberry Pi Touch Display 2
 
 Both work from the same install, with no configuration. The presenter reads the framebuffer's size and
@@ -222,6 +241,12 @@ of leaving you an empty directory.
 **"patch-player.py says the path is wrong."**
 Do not run it directly. It expects `pi-runtime/rbp`, which `build-rootfs.sh` puts there by copying
 the recovered player just before calling it. Run `./build-rootfs.sh` instead.
+
+**`FileNotFoundError: '$RX3_ROOT/dev/rx3-ui-state'` in the journal, or a directory literally named `$RX3_USERHOME` appearing in `rx3-handoff`**
+A bug in the scripts between 11 and 14 September 2026: a variable was written inside a single-quoted
+Python heredoc, which the shell never expands, so Python received the literal text. Fixed on every
+branch. `git pull`, then `./install.sh clean` (it deletes the stray directory too), then reinstall.
+`./install.sh doctor` now warns if it sees such a directory.
 
 **"Everything is hardcoded to /home/rx3 or /home/pompu_5."**
 Fixed. Paths are resolved at runtime by `rx3-env.sh` and `rx3_env.py` from the location of the
