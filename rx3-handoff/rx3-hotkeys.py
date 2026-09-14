@@ -28,7 +28,7 @@ def diag():
             f.write('\n===== ' + ' '.join(c) + '\n')
             try: f.write(subprocess.run(c, capture_output=True, text=True, timeout=20).stdout)
             except Exception as e: f.write('(%s)\n' % e)
-        for name in ('rx3-player.log', 'rx3-flx4.log', 'rx3-present.log', 'rx3-touch.log'):
+        for name in ('rx3-player.log', 'rx3-controller.log', 'rx3-present.log', 'rx3-touch.log'):
             p = os.path.join(rx3_env.USERHOME, name)
             if os.path.exists(p):
                 f.write('\n===== tail %s\n' % name)
