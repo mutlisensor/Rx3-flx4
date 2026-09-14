@@ -115,6 +115,11 @@ fi
 [ -f "$RX3_HOME/extracted/player/pdj/rbp" ] && ok "recovered player binary" || bad "extracted/player/pdj/rbp missing - run: python3 recover-firmware.py"
 [ -d "$RX3_ROOT/root/pdj" ] && ok "chroot built" || warn "chroot not built yet - run ./build-rootfs.sh"
 echo
+echo "Host install"
+if [ -f /etc/systemd/system/rx3.service ]; then ok "rx3.service installed ($(systemctl is-enabled rx3 2>/dev/null), $(systemctl is-active rx3 2>/dev/null))"
+else warn "rx3.service not installed yet - run ./install.sh (no arguments), then: sudo systemctl enable --now rx3"; fi
+[ -x "$RX3_BINDIR/rx3-fb-present" ] && ok "helper binaries built" || warn "helper binaries not built yet - ./install.sh builds them"
+echo
 
 if [ -n "$MISSING" ]; then
   echo "Install what is missing with:"
@@ -145,7 +150,14 @@ if [ "${1:-}" = clean ]; then
     "$RX3_HOME/pi-runtime" "$RX3_HOME/rbp-pi" "$RX3_HOME/build" "$RX3_HOME/__pycache__"
   remove_strays
   [ $ALL = 1 ] && sudo rm -rf "$RX3_HOME/extracted" "$RX3_HOME/runtime-symlinks.json" "$RX3_HOME"/official-source-*.zip "$RX3_HOME"/XDJ-RX3_*.zip "$RX3_HOME/aes256.key"
-  ok "clean. Next: git pull, then ./install.sh doctor"
+  ok "clean."
+  echo
+  echo "To reinstall:"
+  echo "  git pull"
+  echo "  ./install.sh doctor        # everything should be ok except 'chroot not built' and 'rx3.service not installed'"
+  echo "  ./build-rootfs.sh          # rebuilds the chroot from the recovered firmware"
+  echo "  ./install.sh               # installs the service, udev rules and helper binaries"
+  echo "  sudo systemctl enable --now rx3"
   exit 0
 fi
 if [ "${1:-}" = desktop ]; then
@@ -279,5 +291,6 @@ else
 fi
 
 echo
-echo "Done. Start it with:  sudo systemctl enable --now rx3"
+echo "Done. The service is installed but not started. Start it, and make it start at boot, with:"
+echo "  sudo systemctl enable --now rx3"
 echo "Logs:  $RX3_LOGDIR/rx3-player.log   journalctl -u rx3 -f"
