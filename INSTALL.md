@@ -24,7 +24,7 @@ If you prefer to install the packages yourself instead of `./install.sh deps`:
 sudo apt update
 sudo apt install -y fuse-overlayfs uhubctl exfatprogs alsa-utils python3-pil python3-cryptography \
                     gcc build-essential gcc-arm-linux-gnueabi rsync p7zip-full \
-                    libfreetype6-dev pkg-config fonts-dejavu-core
+                    libfreetype6-dev pkg-config fonts-dejavu-core gpiod
 ```
 
 Note that two of these are not named after the command they provide: the `arm-linux-gnueabi-gcc`
@@ -306,6 +306,15 @@ cat /sys/class/drm/card*/card*-HDMI*/status     # should say "connected"
 It needs a TrueType font and could not find one, which happens on a minimal Raspbian image. Install
 one with `sudo apt install fonts-dejavu-core`, or point `RX3_FONT` at a `.ttf` of your choosing. The
 presenter names the paths it tried when it fails.
+
+**The FLX4 is lit but not detected after a reboot, until you unplug and re-plug it**
+A bus-powered FLX4 that was attached while the Pi powered up often comes up wedged: powered, but never
+signalling on USB. Only removing its power revives it. The Pi 5 cannot switch power per port (`uhubctl`
+"off" merely disables the port, the controller stays lit), so the start script cuts the RP1's single
+`USB_VBUS_EN` line for five seconds when the controller is missing ten seconds into start-up. Every USB
+device re-enumerates after that, which is why it happens before any media is attached. Needs the `gpiod`
+package; `./install.sh deps` installs it. If it still fails, plug the FLX4 into its own supply on its
+DC-IN port so it does not power up together with the Pi.
 
 **Under-voltage warnings or the FLX4 not enumerating.** Use the official 27 W supply or a powered
 USB hub. The controller draws enough to brown out a Pi 5 on an underpowered supply.

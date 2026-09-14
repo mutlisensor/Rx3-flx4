@@ -21,13 +21,23 @@ CARD=""
 for wait in $(seq 1 30); do                       # the controller can enumerate a few seconds after boot
   for c in /proc/asound/card*/id; do grep -qE "FLX4|FLX6" $c 2>/dev/null && CARD=$(cat $c) && break; done
   [ -n "$CARD" ] && break
-  # A bus-powered FLX4 often fails enumeration at power-on ("device not accepting address"); one port power-cycle usually fixes it.
-  # Hub numbering differs per board (1 on a Pi 5, 1-1 on a 3B+), so ask uhubctl which hubs it can
-  # switch rather than naming one. Skipped once USB media is mounted, to avoid yanking a stick.
-  if [ $wait = 10 ] && command -v uhubctl >/dev/null && ! findmnt -rn -o TARGET | grep -q "^$R/media/"; then
-    for hub in $(uhubctl 2>/dev/null | sed -n 's/^Current status for hub \([^ ]*\).*/\1/p'); do
-      uhubctl -l "$hub" -a cycle -d 2 >/dev/null 2>&1
-    done
+  # A bus-powered FLX4 that was attached while the Pi powered up often comes up wedged: lit, but never
+  # signalling on USB, and nothing short of removing its power revives it. The Pi 5 has no per-port power
+  # switching (uhubctl "off" only disables the port; the device stays lit), but the RP1 has one USB_VBUS_EN
+  # line for all ports, so cut that for a few seconds. Every USB device re-enumerates afterwards, which is
+  # why this only runs before any media is attached, and at most twice.
+  if { [ $wait = 10 ] || [ $wait = 22 ]; } && ! findmnt -rn -o TARGET | grep -q "^$R/media/"; then
+    chip=$(gpioinfo 2>/dev/null | awk '/^gpiochip/{c=$1} /USB_VBUS_EN/{print c}' | head -1)
+    if [ -n "$chip" ] && command -v gpioset >/dev/null; then
+      logger -t rx3 "FLX4 absent after ${wait}s: cutting USB power (USB_VBUS_EN on $chip) for 5 s"
+      timeout 5 gpioset -c "$chip" USB_VBUS_EN=0; timeout 1 gpioset -c "$chip" USB_VBUS_EN=1
+    elif command -v uhubctl >/dev/null; then
+      # Other boards: uhubctl can switch real power on some hubs (Pi 4 root hub, powered hubs).
+      for hub in $(uhubctl 2>/dev/null | sed -n 's/^Current status for hub \([^ ]*\).*/\1/p'); do
+        logger -t rx3 "FLX4 absent after ${wait}s: power-cycling hub $hub"
+        uhubctl -l "$hub" -a cycle -d 5 >/dev/null 2>&1
+      done
+    fi
   fi
   sleep 1
 done
@@ -42,7 +52,7 @@ echo "audio card: $CARD"
 # --- reset interim UI state, then start the firmware -------------------------------------------
 python3 - <<'PY'
 import os,struct
-with os.fdopen(os.open('$RX3_ROOT/dev/rx3-ui-state',os.O_RDWR|os.O_CREAT,0o600),'r+b') as f:
+with os.fdopen(os.open(os.environ['RX3_ROOT']+'/dev/rx3-ui-state',os.O_RDWR|os.O_CREAT,0o600),'r+b') as f:
     f.write(struct.pack('<I6fII',0x52583332,1,.6,0,1,.5,.5,0,1))
 PY
 chown $U:$U $R/dev/rx3-ui-state

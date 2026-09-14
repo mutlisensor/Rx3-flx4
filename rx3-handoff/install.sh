@@ -39,6 +39,7 @@ pkg_for(){ case "$1" in
   arm-linux-gnueabi-gcc) echo gcc-arm-linux-gnueabi;;
   python3) echo python3;;
   uhubctl) echo uhubctl;;
+  gpioset) echo gpiod;;
   7z) echo p7zip-full;;
   *) echo "$1";;
 esac; }
@@ -49,7 +50,8 @@ need(){ have "$1" && ok "$1" || { bad "$1 not installed (apt package: $(pkg_for 
 optional(){ have "$1" && ok "$1" || { warn "$1 missing - $2 (apt package: $(pkg_for "$1"))"; MISSING="$MISSING $(pkg_for "$1")"; }; }
 
 for p in fuse-overlayfs rsync gcc arm-linux-gnueabi-gcc python3; do need $p; done
-optional uhubctl "only used to power-cycle a stuck FLX4"
+optional uhubctl "only used to power-cycle a stuck FLX4 on boards without USB_VBUS_EN"
+optional gpioset "used to cut USB power when a bus-powered FLX4 comes up dead at boot (Pi 5)"
 if pkg-config --exists freetype2 2>/dev/null || [ -e /usr/include/freetype2/ft2build.h ]; then
   ok "freetype headers"
 else
@@ -159,7 +161,7 @@ if [ "${1:-}" = deps ]; then
   sudo apt update
   sudo apt install -y fuse-overlayfs uhubctl exfatprogs alsa-utils python3-pil python3-cryptography \
                       gcc build-essential gcc-arm-linux-gnueabi rsync p7zip-full \
-                      libfreetype6-dev pkg-config fonts-dejavu-core || exit 1
+                      libfreetype6-dev pkg-config fonts-dejavu-core gpiod || exit 1
   echo "Done. Now run: ./install.sh doctor"
   exit 0
 fi

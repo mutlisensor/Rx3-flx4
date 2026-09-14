@@ -100,7 +100,14 @@ changing anything. Note that `uhubctl` lives in `/usr/sbin`, off a normal user's
 - **DDJ-FLX4 keep-alive**: the controller stops sending MIDI (and its outputs go silent) unless the host sends the vendor
   SysEx `F0 00 40 05 00 00 04 05 00 50 02 F7` every ~200 ms (rekordbox/Mixxx do this). `flx4-bridge.py` now sends it from a
   thread; it also exits when the MIDI device disappears so the hot-plug rule restarts everything on re-plug.
-- FLX4 present at power-on frequently fails enumeration (error -71); `rx3-start.sh` power-cycles USB hub 1 (uhubctl) after
+- (2026-09-14) FLX4 attached at Pi power-on comes up LIT BUT SILENT on USB: no enumeration attempt at all in the
+  kernel log, and no uhubctl cycle (2/8/20 s) revives it because the Pi 5 has no per-port VBUS switching
+  ("off" only disables the port). Worse, a boot-time uhubctl cycle on the USB3 root hub made a USB3 stick
+  vanish for good. The RP1 has one `USB_VBUS_EN` line (gpiochip0 line 42, no kernel consumer) for all ports:
+  `timeout 5 gpioset -c gpiochip0 USB_VBUS_EN=0; gpioset ... =1` is a real power cut and brought the FLX4 and
+  the stick back. `rx3-start.sh` does that at 10 s (and 22 s) when the FLX4 is absent and nothing is mounted.
+  Verified across a reboot: card DDJFLX4 chosen at 30 s, both sticks attached, bridge up.
+- Older note: FLX4 present at power-on frequently fails enumeration (error -71); `rx3-start.sh` power-cycled USB hub 1 (uhubctl) after
   10 s without the card. Otherwise re-plug it; `98-rx3-flx4.rules` restarts the service onto it.
 - **Crossfader**: the firmware's crossfader assign per channel defaults to THRU (inert) because the CROSS FADER CURVE panel
   switch state never arrives. `control-shim.c` now calls `djengine::DjEngineIF::setCrossFaderAssign` (0x4cc0c, uses the
