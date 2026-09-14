@@ -3,6 +3,12 @@
 Run every command **on the Raspberry Pi**, as your normal login user. Nothing here needs a
 particular username: the scripts work out where they live and which account owns them.
 
+
+> **If you cloned before 15 September 2026:** the repository's history was rewritten once (author metadata
+> only, no file changes). A plain `git pull` will refuse with "divergent branches". Re-sync with
+> `git fetch origin && git reset --hard origin/$(git branch --show-current)`, or re-clone. Nothing you have
+> built or installed is affected.
+
 ## 1. Get the files and the packages
 
 ```bash
