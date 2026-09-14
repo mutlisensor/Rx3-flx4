@@ -1,46 +1,47 @@
 #ifndef PI_CONTROLS_H
 #define PI_CONTROLS_H
+/* Shared geometry and controls for the presenter (fb-present.c) and the touch bridge (touch-bridge.c).
+   7-inch layout: the firmware's 1280x800 picture is scaled (bilinear) to fill as much of the panel as a
+   sidebar of four touch buttons allows. On a 16:9 panel that is exact: 1152x720 + 128 px sidebar on 1280x720.
+   Everything else (deck faders, master/headphone levels, crossfader, cue buttons, browse/load/play keys)
+   lives on the DDJ-FLX4 or on the firmware's own touch UI. */
 /* Override at build time: gcc -DRX3_ROOT_PATH='"/home/you/rx3-rootfs"' ... (install.sh does this). */
 #ifndef RX3_ROOT_PATH
 #define RX3_ROOT_PATH "/home/rx3/rx3-rootfs"
 #endif
 #define UI_STATE RX3_ROOT_PATH "/dev/rx3-ui-state"
 #define UI_CONTROL RX3_ROOT_PATH "/dev/rx3-control"
-#define CONTENT_X 160
-#define CONTENT_W 1600
-#define CONTENT_H 1000
+#define FW_W 1280
+#define FW_H 800
 struct command {int key,operation,channel,value;float analog;int extra;};
+/* level[] and headphone_cue are unused since the on-screen mixer went; kept so the state file layout is unchanged. */
 struct ui_state {unsigned magic;float level[6];unsigned pressed;unsigned headphone_cue;int cursor_x,cursor_y,cursor_visible;};
-struct button {const char *label;int key,channel,scroll;unsigned color;};
-static const struct button buttons[12]={
- {"SOURCE",0x201,0,0,0x08699c},{"BROWSE",0x202,0,0,0x08699c},
- {"BACK",0x420d,0,0,0x283542},{"UP",0x420c,0,-1,0x283542},
- {"DOWN",0x420c,0,1,0x283542},{"ENTER",0x420c,0,0,0x283542},
- {"LOAD 1",0x4311,1,0,0x08699c},{"USB STOP 1 (hold)",0x8002,1,0,0x7a2f2f},
- {"PLAY / PAUSE 1",0x4101,1,0,0x12623a},{"LOAD 2",0x4311,2,0,0x08699c},
- {"USB STOP 2 (hold)",0x8002,2,0,0x7a2f2f},{"PLAY / PAUSE 2",0x4101,2,0,0x12623a}
+struct button {const char *label,*sub;int key,channel;unsigned color;};
+#define NBUTTONS 4
+static const struct button buttons[NBUTTONS]={
+ {"SOURCE",0,0x201,0,0x08699c},{"BROWSE",0,0x202,0,0x08699c},
+ {"USB STOP 1","hold 2 s",0x8002,1,0x7a2f2f},{"USB STOP 2","hold 2 s",0x8002,2,0x7a2f2f}
 };
-/* Where the 1920x1200 canvas lands on a panel of W x H pixels when drawn rotated `rot` degrees clockwise:
-   the letterboxed footprint is lw x lh canvas units scaled by sc, placed at (ox,oy). The presenter and the
-   touch bridge both use this, so what is drawn and what is touched always agree. */
-struct layout {int W,H,rot,lw,lh,dw,dh,ox,oy;double sc;};
+/* Logical canvas = the panel seen upright (LW x LH): rotation 0/180 keep W x H, 90/270 swap them.
+   Content rectangle (cx,cy,cw,ch) holds the firmware picture at scale s; the sidebar is the last `col` columns. */
+struct layout {int W,H,rot,LW,LH,col,cx,cy,cw,ch;double s;struct {int x,y,w,h;} btn[NBUTTONS];};
 static struct layout make_layout(int W,int H,int rot){
- struct layout L={W,H,rot};int side=rot==90||rot==270;L.lw=side?1200:1920;L.lh=side?1920:1200;
- double sx=W*1.0/L.lw,sy=H*1.0/L.lh;L.sc=sx<sy?sx:sy;L.dw=(int)(L.lw*L.sc);L.dh=(int)(L.lh*L.sc);L.ox=(W-L.dw)/2;L.oy=(H-L.dh)/2;return L;}
-/* Panel pixel -> canvas pixel. Outside the footprint: returns 0 when clamp is 0, else clamps to the nearest edge. */
-static int panel_to_canvas(const struct layout*L,int px,int py,int clamp,int*cx,int*cy){
- int inside=px>=L->ox&&px<L->ox+L->dw&&py>=L->oy&&py<L->oy+L->dh;if(!inside&&!clamp)return 0;
- int u=(int)((px-L->ox)/L->sc),v=(int)((py-L->oy)/L->sc);
- if(u<0)u=0;if(u>=L->lw)u=L->lw-1;if(v<0)v=0;if(v>=L->lh)v=L->lh-1;
- switch(L->rot){case 90:*cx=v;*cy=1199-u;break;case 180:*cx=1919-u;*cy=1199-v;break;case 270:*cx=1919-v;*cy=u;break;default:*cx=u;*cy=v;}
- return 1;}
+ struct layout L;L.W=W;L.H=H;L.rot=rot;int side=rot==90||rot==270;L.LW=side?H:W;L.LH=side?W:H;
+ L.col=L.LW/10;double sx=(L.LW-L.col)*1.0/FW_W,sy=L.LH*1.0/FW_H;L.s=sx<sy?sx:sy;
+ L.cw=(int)(FW_W*L.s);L.ch=(int)(FW_H*L.s);L.cx=(L.LW-L.col-L.cw)/2;L.cy=(L.LH-L.ch)/2;
+ int pad=L.col/16,bw=L.col-2*pad,bh=(L.LH/2-3*pad)/2,x=L.LW-L.col+pad;
+ int ys[NBUTTONS]={pad,2*pad+bh,L.LH/2+pad,L.LH/2+2*pad+bh};
+ for(int i=0;i<NBUTTONS;i++){L.btn[i].x=x;L.btn[i].y=ys[i];L.btn[i].w=bw;L.btn[i].h=bh;}
+ return L;}
+/* Panel pixel -> logical pixel (rotation only; the canvas covers the whole panel). */
+static inline void panel_to_logical(const struct layout*L,int px,int py,int*lx,int*ly){
+ switch(L->rot){case 90:*lx=py;*ly=L->LH-1-px;break;case 180:*lx=L->LW-1-px;*ly=L->LH-1-py;break;case 270:*lx=L->LW-1-py;*ly=px;break;default:*lx=px;*ly=py;}}
+static int button_at(const struct layout*L,int lx,int ly){
+ for(int i=0;i<NBUTTONS;i++)if(lx>=L->btn[i].x&&lx<L->btn[i].x+L->btn[i].w&&ly>=L->btn[i].y&&ly<L->btn[i].y+L->btn[i].h)return i;return -1;}
 /* RX3_ROTATE picks the rotation (0/90/180/270, clockwise); otherwise portrait panels get 90, landscape 0. */
 static int rotation_for(int W,int H){const char*e=getenv("RX3_ROTATE");
  if(e&&*e){int r=atoi(e);if(r==0||r==90||r==180||r==270)return r;fprintf(stderr,"RX3_ROTATE=%s ignored: use 0, 90, 180 or 270\n",e);}
  return H>W?90:0;}
 /* RX3_FB names the framebuffer to draw on (rx3-env.sh picks the DSI panel when one exists). */
 static const char *fb_device(void){const char*e=getenv("RX3_FB");return e&&*e?e:"/dev/fb0";}
-static const char *slider_names[6]={"DECK 1","MASTER","HP MIX","DECK 2","HP LEVEL","CROSS"};
-static const int slider_keys[6]={0x501e,0x4403,0x4405,0x501e,0x4406,0x6017};
-static const int slider_channels[6]={1,0,0,2,0,0};
 #endif

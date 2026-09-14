@@ -95,6 +95,37 @@ appears on the display. A USB mouse works as a pointer until you attach a touchs
 
 ---
 
+# This branch: the 7-inch layout
+
+`7inch` is the branch for the Raspberry Pi Touch Display 2 and any other touch panel. It differs from
+`main` only in what is drawn and how:
+
+- The firmware's 1280x800 picture is scaled in **one bilinear pass** straight to the panel, instead of two
+  nearest-neighbour steps through a 1920x1200 canvas. Moving waveforms no longer shimmer and text is
+  cleaner. On a 16:9 panel the fit is exact: 1152x720 plus a 128 px sidebar on 1280x720, 2304x1440
+  plus 256 px on 2560x1440.
+- Frames are composed off-screen and copied right after the panel's vertical blank, at the panel rate
+  (60 Hz), and only when the firmware picture, a button or the pointer actually changed. Idle costs a
+  few percent of one core; a playing deck (the firmware repaints about 38 times a second) costs about
+  60 % of one Pi 5 core.
+- The on-screen mixer (deck faders, master, headphone mix and level, crossfader, cue buttons) and the
+  BACK/UP/DOWN/ENTER/LOAD/PLAY buttons are gone. All of them exist on the DDJ-FLX4 (checked against the
+  bridge's mapping) or in the firmware's own touch UI. What remains is a sidebar with the four things the
+  FLX4 does not have: SOURCE, BROWSE, USB STOP 1 and USB STOP 2 (hold 2 s, timed by the firmware).
+- A USB mouse still works as a pointer, and `rx3-tap.py` now takes firmware coordinates (1280x800).
+
+Knobs for `rx3.conf`, on top of `RX3_FB` / `RX3_ROTATE`:
+
+| Variable | Effect |
+|---|---|
+| `RX3_FPS=30` | Present at 30 instead of 60 (halves the ceiling on a slow board) |
+| `RX3_FILTER=nearest` | Nearest-neighbour instead of bilinear, roughly a third of the CPU |
+
+The presenter logs its real rate once a minute to `rx3-present.log` (`frames/s` is the panel rate it
+achieved, `rendered/s` how often the picture actually changed).
+
+---
+
 # Display: HDMI or the Raspberry Pi Touch Display 2
 
 Both work from the same install, with no configuration. The presenter reads the framebuffer's size and
@@ -123,6 +154,8 @@ Displays must be connected **at boot**; a framebuffer is not created on hotplug.
 echo 'RX3_ROTATE=270' > ~/rx3-handoff/rx3.conf     # 0, 90, 180 or 270, clockwise
 sudo systemctl restart rx3
 ```
+
+(270 is what the panel needs when mounted with its flat cable on the DJ's left; 90 is the other way up.)
 
 Portrait panels default to 90, landscape ones to 0. The touch mapping follows the same setting.
 `rx3.conf` is also where `RX3_FB` and `RX3_FONT` go; it is sourced by every script.

@@ -70,7 +70,7 @@ elif [ ! -x $RX3_BINDIR/rx3-fb-present ]; then
   echo "rx3-fb-present is missing from $RX3_BINDIR: run ./install.sh to build it."
 else
   echo "display: $RX3_FB ($(cat /sys/class/graphics/$(basename $RX3_FB)/name 2>/dev/null) $(cat /sys/class/graphics/$(basename $RX3_FB)/virtual_size 2>/dev/null))${RX3_ROTATE:+ rotate=$RX3_ROTATE}"
-  pgrep -x rx3-fb-present >/dev/null || nohup sudo -u $U env RX3_FB="$RX3_FB" RX3_ROTATE="$RX3_ROTATE" RX3_FONT="${RX3_FONT:-}" $RX3_BINDIR/rx3-fb-present $R/dev/fb0 > $RX3_USERHOME/rx3-present.log 2>&1 < /dev/null &
+  pgrep -x rx3-fb-present >/dev/null || nohup sudo -u $U env RX3_FB="$RX3_FB" RX3_ROTATE="$RX3_ROTATE" RX3_FPS="$RX3_FPS" RX3_FILTER="$RX3_FILTER" RX3_FONT="${RX3_FONT:-}" $RX3_BINDIR/rx3-fb-present $R/dev/fb0 > $RX3_USERHOME/rx3-present.log 2>&1 < /dev/null &
 fi
 $H/input-hotplug.sh     # touchscreen if present, else USB mouse
 

@@ -175,7 +175,7 @@ echo "== helper binaries"
 # fb-present draws its labels with FreeType, whose headers live under /usr/include/freetype2.
 FT_CFLAGS=$(pkg-config --cflags freetype2 2>/dev/null || echo -I/usr/include/freetype2)
 FT_LIBS=$(pkg-config --libs freetype2 2>/dev/null || echo -lfreetype)
-gcc -O2 -DRX3_ROOT_PATH="\"$RX3_ROOT\"" $FT_CFLAGS -o "$RX3_BINDIR/rx3-fb-present" "$RX3_HOME/fb-present.c" $FT_LIBS || {
+gcc -O3 -march=native -DRX3_ROOT_PATH="\"$RX3_ROOT\"" $FT_CFLAGS -o "$RX3_BINDIR/rx3-fb-present" "$RX3_HOME/fb-present.c" $FT_LIBS || {
   echo "Building rx3-fb-present failed. It needs the FreeType headers:  sudo apt install libfreetype6-dev pkg-config" >&2; exit 1; }
 gcc -O2 -DRX3_ROOT_PATH="\"$RX3_ROOT\"" -o "$RX3_BINDIR/rx3-touch-bridge" "$RX3_HOME/touch-bridge.c" || exit 1
 ok "built rx3-fb-present and rx3-touch-bridge in $RX3_BINDIR"

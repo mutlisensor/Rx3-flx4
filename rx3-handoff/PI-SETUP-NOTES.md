@@ -17,7 +17,15 @@
   the same table, so the earlier 10 % long-axis error (bridge mapped the full 1280 px while the picture
   was 1152 px) is gone. Rotate 90 puts the canvas's left edge at the panel's top edge (turn the panel
   anticlockwise to read it); 270 is the other way round.
-- On the TD2 the firmware UI ends up 960x600 px in a 1152x720 picture. `--replay` (rx3-tap.py) and
+- 7inch branch: no 1920x1200 canvas any more. `make_layout` gives logical = panel-upright size, a sidebar of
+  LW/10 px on the right, and the firmware scaled by min((LW-col)/1280, LH/800) with bilinear tables
+  (sx0/fx, sy0/fy, 8-bit weights, packed 0x00ff00ff maths). Frame change detection = FNV hash of every 61st
+  word of the chroot fb + button/cursor state. FBIO_WAITFORVSYNC works on the DSI fbdev (59.9 Hz measured);
+  a vsync that returns instantly falls back to a timer. Measured on the Pi 5/TD2: ~8 % of a core idle,
+  ~62 % with a deck playing (firmware repaints ~38/s), the firmware itself ~54 %.
+- The FLX4 covers everything the old on-screen mixer did (bridge: fader 0x13, cross 0x1F, hpmix 0x0C,
+  hplv 0x0D, masterlv 0x08, hpcue note 0x54), which is why the 7inch layout drops it.
+- Old layout note: on the TD2 the firmware UI ended up 960x600 px in a 1152x720 picture. `--replay` (rx3-tap.py) and
   `--mouse` feed canvas coordinates directly, independent of the panel.
 
 ## Paths and identity are resolved, not hardcoded

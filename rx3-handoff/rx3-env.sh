@@ -33,7 +33,9 @@ rx3_pick_fb(){
 }
 RX3_FB="${RX3_FB:-$(rx3_pick_fb)}"
 RX3_ROTATE="${RX3_ROTATE:-}"          # 0/90/180/270 clockwise; empty = portrait panels 90, landscape 0
-export RX3_FB RX3_ROTATE
+RX3_FPS="${RX3_FPS:-}"                # presenter rate; empty = 60, synced to the panel's vertical blank
+RX3_FILTER="${RX3_FILTER:-}"          # "nearest" to trade picture quality for CPU on slow boards
+export RX3_FB RX3_ROTATE RX3_FPS RX3_FILTER
 
 # A clone made with sudo leaves this directory owned by root, which would put the chroot somewhere
 # like /root/rx3-rootfs. Judge that by the account's home directory rather than by uid, because the
