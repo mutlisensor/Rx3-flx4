@@ -2,7 +2,7 @@
 # Stop the RX3 player and its helpers, then release overlays/binds so shutdown never waits on them.
 . "$(dirname "$(readlink -f "$0")")/rx3-env.sh"
 R=$RX3_ROOT
-pkill -x rbp-pi; pkill -f "^python3 $RX3_HOME/flx4-bridge"; pkill -x rx3-fb-present; pkill -f "^$RX3_BINDIR/rx3-touch-bridge"
+pkill -x rbp-pi; pkill -f "^python3 $RX3_HOME/controller-bridge"; pkill -x rx3-fb-present; pkill -f "^$RX3_BINDIR/rx3-touch-bridge"
 for i in 1 2 3 4 5; do pgrep -x rbp-pi >/dev/null || break; sleep 1; done
 pgrep -x rbp-pi >/dev/null && pkill -9 -x rbp-pi
 systemctl stop rx3-priv.service rx3-pointer.service 2>/dev/null

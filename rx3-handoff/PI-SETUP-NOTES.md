@@ -20,6 +20,20 @@
 - On the TD2 the firmware UI ends up 960x600 px in a 1152x720 picture. `--replay` (rx3-tap.py) and
   `--mouse` feed canvas coordinates directly, independent of the panel.
 
+## Controllers (2026-09-14)
+
+- `controllers.py` is the single list: id, USB ids, ALSA hint, keep-alive/init SysEx, Beat FX CH SELECT map,
+  SHIFT+PLAY (censor) note. Detection reads `/proc/asound/cardN/usbid` (falls back to the card name); cards are
+  numbered in plug-in order, so `detect()` sorted by index = "first connected wins". `RX3_ASOUND` points it at a
+  fake tree for tests. rx3-start.sh, controller-hotplug.sh and install.sh (udev rule generation) all use it.
+- DDJ-400 vs FLX4 (Mixxx XML diff): identical except CH SELECT (400: ch4 notes 0x10 CH1 / 0x11 CH2 / 0x14 MASTER;
+  FLX4: (4,0x10) CH1, (5,0x11) CH2, else MASTER), SHIFT+PLAY censor (400 0x47, FLX4 0x0E), the FLX4's keep-alive
+  (400: one init SysEx F0 00 40 05 00 00 02 06 00 03 01 F7), FLX4-only SMART CFX/FADER and BROWSE+SHIFT. The 400
+  has the FILTER knobs (B6 17/18) too. DDJ-400 USB id 2b73:0017 (usb-ids.gowdy.us). Pad-mode notes are the same
+  hardware codes on both even though Mixxx's 400 XML does not list them.
+- `controller-bridge.py -` = MIDI from stdin (unbuffered!) with RX3_CONTROLLER=<id>, RX3_MIDI_OUT for outgoing;
+  the synthetic test in the commit message exercised play, censor, all CH SELECT codes, CFX knob and tempo centre.
+
 ## Quoted heredocs and udev cgroups (two traps, both hit)
 
 - A `$RX3_*` variable inside a `<<'PY'` heredoc is never expanded: rx3-start.sh created no ui-state and

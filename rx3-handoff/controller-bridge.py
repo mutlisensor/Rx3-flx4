@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
-"""DDJ-FLX4 -> XDJ-RX3 firmware control bridge.
+"""DJ controller -> XDJ-RX3 firmware control bridge (DDJ-FLX4, DDJ-400; see controllers.py).
 
-Reads raw MIDI from the DDJ-FLX4 and translates it into the RX3 firmware's
+Reads raw MIDI from the controller and translates it into the RX3 firmware's
 queued key messages on the chroot control FIFO (see control-shim.c):
   struct command {int key,operation,channel,value; float analog; int extra;}
-  operation: 0 press, 2 release, 4 rotary/analog.  channel: 0 global, 1 deck1, 2 deck2.
+  operation: 0 press, 2 release, 4 rotary/analog, 5 switch/tempo.  channel: 0 global, 1 deck1, 2 deck2.
 
-MIDI map follows the DDJ-FLX4 documented layout (same family as DDJ-400):
-  note-on/off on ch0/ch1 = deck 1/2 buttons, ch6 = mixer/browse buttons,
-  ch7/ch9 = deck 1/2 pads, CC on ch0/ch1 = deck knobs/faders, ch6 = master.
-Usage: flx4-bridge.py [/dev/snd/midiC?D0]  (auto-detects the FLX4 if omitted)
+MIDI map is the DDJ-400 family layout (documented by Pioneer, cross-checked against Mixxx's mappings):
+  note-on/off on ch0/ch1 = deck 1/2 buttons, ch6 = mixer/browse buttons, ch4/5 = Beat FX,
+  ch7/ch9 = deck 1/2 pads (ch8/10 with SHIFT), CC on ch0/ch1 = deck knobs/faders, ch6 = master.
+Usage: controller-bridge.py [/dev/snd/midiC?D0]   (auto-detects the first connected known controller)
+       RX3_CONTROLLER=flx4|ddj400 forces the controller profile; a device of "-" reads MIDI from stdin and writes
+       outgoing MIDI (LEDs, keep-alive) to $RX3_MIDI_OUT, for testing a mapping without the hardware.
 """
 import glob, os, struct, sys, time, threading
 
-import rx3_env
+import rx3_env, controllers
 ROOT = rx3_env.ROOT
 FIFO = ROOT + '/dev/rx3-control'
 
@@ -41,8 +43,9 @@ def analog(key, ch, v): send(key, 4, ch, 0, v)
 # ---- MIDI note -> (key, channel-kind) for deck note channels (0x90/0x91) ----
 DECK_NOTES = {0x0B: 'play', 0x0C: 'cue', 0x3F: 'shift', 0x10: 'loopin', 0x11: 'loopout', 0x4D: 'reloop',
               0x58: 'sync', 0x5C: 'master', 0x60: 'temporange', 0x54: 'hpcue', 0x36: 'jogtouch',
-              0x1B: 'hotcue', 0x6D: 'autobeatloop', 0x20: 'beatjump', 0x0E: 'slip', 0x68: 'quantize',
+              0x1B: 'hotcue', 0x6D: 'autobeatloop', 0x20: 'beatjump', 0x68: 'quantize',
               0x40: 'searchfwd', 0x3D: 'searchfwd', 0x3E: 'searchrev', 0x51: 'callprev', 0x53: 'callnext'}
+# SHIFT+PLAY (censor) is added per controller at start-up: 0x0E on the FLX4, 0x47 on the DDJ-400.
 # 0x1B hot cue mode, 0x6D beat loop mode, 0x20 beat jump mode select the pad mode on the RX3 too.
 MIXER_NOTES = {0x46: ('load', 1), 0x47: ('load', 2), 0x41: ('rotary_press', 0), 0x42: ('back', 0)}
 DECK_CC_14 = {0x00: 'tempo'}                       # MSB 0x00 + LSB 0x20 (14-bit)
@@ -52,7 +55,7 @@ JOG_CC = {0x21: 'bend', 0x22: 'scratch', 0x23: 'bend', 0x29: 'search'}
 
 msb = {}
 # The RX3 treats jog ticks as an ongoing rotation until it sees a zero-value jog report (the physical jog reports its
-# stopping). The FLX4 only sends ticks while turning, so report zero when the wheel has been idle for a moment.
+# stopping). These controllers only send ticks while turning, so report zero when the wheel has been idle for a moment.
 jog_last = {1: 0.0, 2: 0.0}; jog_active = {1: False, 2: False}
 def jog_stop(deck):
     if jog_active[deck]: jog_active[deck] = False; send(K['jog'], 4, deck, 0, 0.0)
@@ -100,8 +103,8 @@ def note(status, n, vel):
         # 6 FLANGER 7 PHASER 8 FILTER 9 TRANS 10 ROLL 11 SLIP ROLL 12 PITCH 13 VINYL BRAKE
         if n == 0x63 and down: beatfx_index = (beatfx_index + 1) % 14; send(K['fxselect'], 5, 0, beatfx_index, float(beatfx_index)); return
         if n == 0x64 and down: beatfx_index = (beatfx_index - 1) % 14; send(K['fxselect'], 5, 0, beatfx_index, float(beatfx_index)); return
-        if n in (0x10, 0x11) and down:      # CH SELECT slide -> RX3 values: 0 CH1, 1 CH2, 2 MIC, 3 CF.A, 4 CF.B, MASTER = FXCH_MASTER
-            sel = 0 if (ch, n) == (4, 0x10) else 1 if (ch, n) == (5, 0x11) else FXCH_MASTER
+        if n in (0x10, 0x11, 0x14) and down:   # CH SELECT slide -> RX3 values: 0 CH1, 1 CH2, 2 MIC, 3 CF.A, 4 CF.B, MASTER = FXCH_MASTER
+            sel = CTL['fxch'].get((ch, n), 'master'); sel = FXCH_MASTER if sel == 'master' else sel
             send(K['fxch'], 5, 0, sel, float(sel)); return
         return
     elif ch == 6:
@@ -135,7 +138,7 @@ def cc(status, c, v):
         if c in DECK_CC: analog(K[DECK_CC[c]], deck, v / 127.0); return
         if c in (0x24, 0x27, 0x2B, 0x2F, 0x33): return   # LSB echoes of the knobs, ignore
         if c in JOG_CC:
-            delta = v - 64                  # FLX4 sends 64 +/- ticks
+            delta = v - 64                  # the controller sends 64 +/- ticks
             if c == 0x29: delta *= 10
             send(K['jog'], 4, deck, int(delta * jog_scale), float(delta)); jog_moved(deck); return
     elif ch == 4:
@@ -148,32 +151,34 @@ def cc(status, c, v):
         if c == 0x40: send(K['rotary'], 4, 0, v if v < 64 else v - 128, 0.0); return   # relative encoder: 1..63 cw, 127..65 ccw
         if c in MASTER_CC: analog(K[MASTER_CC[c]], 0, v / 127.0); return
 
-def find_flx4():
-    for d in sorted(glob.glob('/dev/snd/midiC*D0')):
-        card = d.split('midiC')[1].split('D')[0]
-        try:
-            if 'FLX4' in open('/proc/asound/card%s/id' % card).read(): return d
-        except OSError: pass
-    return None
+found = controllers.detect()
+forced = os.environ.get('RX3_CONTROLLER')
+if forced:
+    ctl_id = forced
+elif found:
+    ctl_id = found[0][1]
+    if len(found) > 1: print('controller-bridge: %d controllers connected, using the first plugged in (%s)' % (len(found), controllers.CONTROLLERS[ctl_id]['name']), flush=True)
+else:
+    print('controller-bridge: no known DJ controller connected (%s)' % ', '.join(c['name'] for c in controllers.CONTROLLERS.values()), file=sys.stderr); sys.exit(1)
+CTL = controllers.CONTROLLERS[ctl_id]
+dev = sys.argv[1] if len(sys.argv) > 1 else (controllers.midi_device(found[0][0]) if found else None)
+if not dev: print('controller-bridge: %s has no MIDI device' % CTL['name'], file=sys.stderr); sys.exit(1)
+print('controller-bridge: %s on %s' % (CTL['name'], dev), flush=True)
+DECK_NOTES[CTL['censor']] = 'slip'          # SHIFT+PLAY (censor) drives the RX3's SLIP; the note differs per controller
 
-dev = sys.argv[1] if len(sys.argv) > 1 else find_flx4()
-if not dev: print('DDJ-FLX4 MIDI device not found', file=sys.stderr); sys.exit(1)
-print('flx4-bridge: reading', dev, flush=True)
-
-# The FLX4 only reports controls (and keeps its audio path active) while a host keeps polling it: rekordbox and Mixxx
-# send this vendor SysEx every 200 ms (Mixxx: "reverse engineered with Wireshark"). It doubles as a control-position query.
-KEEPALIVE = bytes([0xF0, 0x00, 0x40, 0x05, 0x00, 0x00, 0x04, 0x05, 0x00, 0x50, 0x02, 0xF7])
 import threading
-try: midi_out = os.open(dev, os.O_WRONLY)          # one shared output handle: keep-alive and LED feedback
-except OSError as e: print('flx4-bridge: cannot open MIDI out:', e, file=sys.stderr, flush=True); sys.exit(3)
+try: midi_out = os.open(dev if dev != '-' else os.environ.get('RX3_MIDI_OUT', '/dev/null'), os.O_WRONLY | (0 if dev != '-' else os.O_CREAT | os.O_APPEND), 0o644)   # keep-alive, init, LEDs
+except OSError as e: print('controller-bridge: cannot open MIDI out:', e, file=sys.stderr, flush=True); sys.exit(3)
 out_lock = threading.Lock()
 def midi_write(b):
     with out_lock:
         try: os.write(midi_out, b)
-        except OSError as e: print('flx4-bridge: MIDI out failed:', e, file=sys.stderr, flush=True); os._exit(3)
-def keepalive():
-    while True: midi_write(KEEPALIVE); time.sleep(0.2)
-threading.Thread(target=keepalive, daemon=True).start()
+        except OSError as e: print('controller-bridge: MIDI out failed:', e, file=sys.stderr, flush=True); os._exit(3)
+if CTL['init']: midi_write(CTL['init'])
+if CTL['keepalive']:
+    def keepalive():
+        while True: midi_write(CTL['keepalive']); time.sleep(CTL['keepalive_period'])
+    threading.Thread(target=keepalive, daemon=True).start()
 
 # ---- LED feedback (the firmware's own panel LEDs are not available to us yet, so we mirror what we know locally) ----
 def led(status, note, on):
@@ -204,10 +209,10 @@ beatfx_index = 0
 FXCH_MASTER = int(os.environ.get('RX3_FXCH_MASTER', '5'))
 
 buf = b''
-with open(dev, 'rb', buffering=0) as f:
+with open(dev if dev != '-' else 0, 'rb', buffering=0) as f:
     while True:
         try: data = f.read(64)
-        except OSError as e: print('flx4-bridge: MIDI in failed:', e, file=sys.stderr, flush=True); sys.exit(3)
+        except OSError as e: print('controller-bridge: MIDI in failed:', e, file=sys.stderr, flush=True); sys.exit(3)
         if not data: time.sleep(.01); continue
         buf += data
         while buf:

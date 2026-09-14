@@ -1,5 +1,5 @@
 [Unit]
-Description=XDJ-RX3 firmware player (chroot) with DDJ-FLX4 bridge
+Description=XDJ-RX3 firmware player (chroot) with DJ controller bridge
 After=network-online.target sound.target local-fs.target systemd-udev-settle.service
 Wants=network-online.target sound.target
 

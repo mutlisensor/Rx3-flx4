@@ -31,6 +31,9 @@ case "$RX3_USERHOME" in
     [ -z "${RX3_ALLOW_SYSTEM_USER:-}" ] && bad "owned by '$RX3_USER', whose home is $RX3_USERHOME - run: sudo chown -R \$(id -un):\$(id -gn) \"$RX3_HOME\"";;
 esac
 
+det=$(python3 "$RX3_HOME/controllers.py" detect --all 2>/dev/null)
+if [ -n "$det" ]; then echo "$det" | sed 's/^/  controller /'; else echo "  controller none connected (known: $(python3 "$RX3_HOME/controllers.py" names))"; fi
+echo
 echo "Prerequisites"
 # Binary name -> apt package, because several differ (arm-linux-gnueabi-gcc lives in
 # gcc-arm-linux-gnueabi, 7z in p7zip-full) and that trips people up.
@@ -52,8 +55,8 @@ need(){ have "$1" && ok "$1" || { bad "$1 not installed (apt package: $(pkg_for 
 optional(){ have "$1" && ok "$1" || { warn "$1 missing - $2 (apt package: $(pkg_for "$1"))"; MISSING="$MISSING $(pkg_for "$1")"; }; }
 
 for p in fuse-overlayfs rsync gcc arm-linux-gnueabi-gcc python3; do need $p; done
-optional uhubctl "only used to power-cycle a stuck FLX4 on boards without USB_VBUS_EN"
-optional gpioset "used to cut USB power when a bus-powered FLX4 comes up dead at boot (Pi 5)"
+optional uhubctl "only used to power-cycle a stuck controller on boards without USB_VBUS_EN"
+optional gpioset "used to cut USB power when a bus-powered controller comes up dead at boot (Pi 5)"
 if pkg-config --exists freetype2 2>/dev/null || [ -e /usr/include/freetype2/ft2build.h ]; then
   ok "freetype headers"
 else
@@ -116,7 +119,7 @@ if [ "${1:-}" = clean ]; then
   printf "Continue? [y/N] "; read -r a; [ "$a" = y ] || [ "$a" = Y ] || { echo "aborted"; exit 1; }
   sudo systemctl disable --now rx3 2>/dev/null
   sudo systemctl stop rx3-priv rx3-pointer 'rx3-overlay-*' 'rx3-hotkeys-*' 2>/dev/null
-  sudo rm -f /etc/systemd/system/rx3.service /etc/udev/rules.d/97-rx3-input.rules /etc/udev/rules.d/98-rx3-flx4.rules /etc/udev/rules.d/99-rx3-usb.rules
+  sudo rm -f /etc/systemd/system/rx3.service /etc/udev/rules.d/97-rx3-input.rules /etc/udev/rules.d/98-rx3-flx4.rules /etc/udev/rules.d/98-rx3-controller.rules /etc/udev/rules.d/99-rx3-usb.rules
   sudo systemctl daemon-reload; sudo udevadm control --reload
   for m in $(findmnt -rn -o TARGET | grep -E "^($RX3_ROOT|$RX3_USB)/" | sort -r); do sudo umount -l "$m" 2>/dev/null; done
   sudo rm -rf "$RX3_ROOT" "$RX3_USB" "$RX3_BINDIR/rx3-fb-present" "$RX3_BINDIR/rx3-touch-bridge" "$RX3_LOGDIR"/rx3-*.log \
@@ -213,9 +216,17 @@ ok "built rx3-fb-present and rx3-touch-bridge in $RX3_BINDIR"
 
 echo "== udev rules and systemd unit"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-for f in 97-rx3-input.rules 98-rx3-flx4.rules 99-rx3-usb.rules; do
+for f in 97-rx3-input.rules 99-rx3-usb.rules; do
   sed "s|@RX3_HOME@|$RX3_HOME|g" "$RX3_HOME/$f.in" > "$tmp/$f"
 done
+# One rule per known controller (controllers.py is the single list): when its sound card appears, move the player onto it.
+{
+  echo "# Known DJ controllers ($(python3 "$RX3_HOME/controllers.py" names)): sound card hot-plug -> controller-hotplug.sh"
+  for id in $(python3 "$RX3_HOME/controllers.py" usbids); do
+    echo "ACTION==\"add\", SUBSYSTEM==\"sound\", KERNEL==\"card*\", ATTRS{idVendor}==\"${id%%:*}\", ATTRS{idProduct}==\"${id##*:}\", RUN+=\"/usr/bin/systemd-run --no-block $RX3_HOME/controller-hotplug.sh\""
+  done
+} > "$tmp/98-rx3-controller.rules"
+sudo rm -f /etc/udev/rules.d/98-rx3-flx4.rules
 sed "s|@RX3_HOME@|$RX3_HOME|g" "$RX3_HOME/rx3.service.in" > "$tmp/rx3.service"
 sudo install -m 644 "$tmp"/*.rules /etc/udev/rules.d/ || exit 1
 sudo install -m 644 "$tmp/rx3.service" /etc/systemd/system/ || exit 1
@@ -229,7 +240,7 @@ PWSTATE=$(systemctl --user is-enabled pipewire 2>/dev/null)
 case "$PWSTATE" in
   masked) ok "PipeWire masked for $RX3_USER";;
   '')     warn "could not reach $RX3_USER's session bus to mask PipeWire; run this as $RX3_USER, or verify with: systemctl --user is-enabled pipewire";;
-  *)      warn "PipeWire is $PWSTATE for $RX3_USER - it may grab the FLX4 before the player does";;
+  *)      warn "PipeWire is $PWSTATE for $RX3_USER - it may grab the controller before the player does";;
 esac
 
 echo "== console: give the player the framebuffer"

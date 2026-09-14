@@ -1,7 +1,8 @@
 # Rx3-flx4
 
-Run the **Pioneer XDJ-RX3 firmware (v1.19) player on a Raspberry Pi 5**, with a **Pioneer DDJ-FLX4**
-as the controller and sound card.
+Run the **Pioneer XDJ-RX3 firmware (v1.19) player on a Raspberry Pi 5**, with a **Pioneer DDJ-FLX4** or **DDJ-400**
+as the controller and sound card (the FLX4 is verified on hardware; the 400 is mapped from Pioneer's layout and
+Mixxx's mapping and awaits a real unit). The connected controller is detected automatically.
 
 This is the real RX3 firmware executing in an ARM32 chroot — not Mixxx, not an emulator, not a
 reimplementation. This repository holds the host-side scaffolding that makes it run: the chroot
@@ -46,8 +47,9 @@ in `rx3-handoff/extracted/` and `build-rootfs.sh` will assemble the chroot from 
 - **`fbshim.c` / `control-shim.c`** — preloaded into the firmware. They fake the framebuffer and
   device ioctls, redirect ALSA onto the FLX4, inject control events, call the firmware's own mixer
   routing functions, and hand privileged unmounts to a root helper.
-- **`flx4-bridge.py`** — translates DDJ-FLX4 MIDI into the firmware's internal key events, including
-  the vendor keep-alive the controller needs to stay awake.
+- **`controller-bridge.py` / `controllers.py`** — translate the controller's MIDI into the firmware's internal
+  key events; the table of known controllers (USB id, keep-alive, the few codes that differ) lives in
+  `controllers.py`, and detection picks the first one plugged in.
 - **`usb-attach.sh` / `usb-hotplug.sh` / `rx3-mtab.sh` / `rx3-priv.sh`** — present USB sticks to the
   firmware through a copy-on-write overlay so the user's media is never modified, and satisfy the
   firmware's mount-table and unmount expectations.

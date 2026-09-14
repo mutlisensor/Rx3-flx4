@@ -148,6 +148,31 @@ Portrait panels default to 90, landscape ones to 0. The touch mapping follows th
 
 ---
 
+# Controllers
+
+Supported: **DDJ-FLX4** (verified on hardware) and **DDJ-400** (mapped from Pioneer's documented layout and
+Mixxx's mapping, tested only with synthetic MIDI, not yet on a real unit). The controller is the sound card as
+well as the control surface, so it must be connected when the player starts; the start script waits up to
+30 s for one.
+
+Detection is automatic: `controllers.py` recognises a controller by its sound card's USB id, and if two are
+attached the one that was plugged in first is used (sound cards are numbered in plug-in order). Only one
+controller is driven at a time. `./install.sh doctor` shows what is connected.
+
+The two units share one MIDI layout; the per-controller differences are a handful of entries in
+`controllers.py`: the FLX4 needs a keep-alive message every 200 ms and the 400 needs one status request at
+start-up, the Beat FX CH SELECT switch and SHIFT+PLAY use different codes. Adding another DDJ-400-family
+controller (FLX6, 200 ...) means adding a row there and, if its layout deviates, a case in
+`controller-bridge.py`. The udev rule that moves the player onto a freshly plugged controller is generated
+from that same table by `install.sh`.
+
+**Testing a mapping without the hardware:** `RX3_CONTROLLER=ddj400 controller-bridge.py -` reads raw MIDI
+bytes from stdin and prints the firmware keys it would send when `RX3_BRIDGE_LOG=1` is set. With a real
+unit, `RX3_BRIDGE_LOG=1` (the service sets it) makes `rx3-controller.log` show every incoming MIDI message,
+which is what to send along if a control does the wrong thing.
+
+---
+
 # Stopping the player, and getting the desktop back
 
 **Just stop it for now** (it will still start at the next boot):

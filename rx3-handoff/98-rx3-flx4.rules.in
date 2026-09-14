@@ -1,2 +1,0 @@
-# DDJ-FLX4 (AlphaTheta 2b73:0045) sound card hot-plug: move the RX3 player onto it if it started on the loopback fallback.
-ACTION=="add", SUBSYSTEM=="sound", KERNEL=="card*", ATTRS{idVendor}=="2b73", ATTRS{idProduct}=="0045", RUN+="/usr/bin/systemd-run --no-block @RX3_HOME@/flx4-hotplug.sh"
