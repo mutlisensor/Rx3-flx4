@@ -5,6 +5,8 @@
 #   ./install.sh doctor   check prerequisites only, change nothing
 #   ./install.sh          full install (binaries, udev rules, systemd unit)
 #   ./install.sh desktop  stop the player and hand the Pi back to its desktop
+#   ./install.sh clean    remove everything a previous install left behind (keeps the recovered firmware)
+#   ./install.sh clean --all   ... and the recovered firmware too
 set -uo pipefail
 . "$(dirname "$(readlink -f "$0")")/rx3-env.sh"
 ok(){ printf '  \033[32mok\033[0m   %s\n' "$1"; }
@@ -69,6 +71,9 @@ python3 -c "import cryptography" 2>/dev/null && ok "python3 cryptography" || { w
 have 7z || have bsdtar || { warn "7z missing (needed by recover-firmware.py to unpack the ISO)"; MISSING="$MISSING p7zip-full"; }
 echo
 
+for d in "$RX3_HOME"/'$RX3_'* "$RX3_HOME"/'$R' "$RX3_HOME"/'$H'; do
+  [ -e "$d" ] && warn "stray directory $d was created by an older script that expanded a variable inside a quoted heredoc; git pull, then ./install.sh clean"
+done
 echo "Recovered firmware"
 RF="$RX3_HOME/extracted/runtime-files"
 NFILES=$( [ -d "$RF" ] && find "$RF" -type f 2>/dev/null | head -2000 | wc -l || echo 0 )
@@ -96,6 +101,30 @@ if [ -n "$MISSING" ]; then
   echo
 fi
 
+if [ "${1:-}" = clean ]; then
+  # Undo an install so a fresh one starts from nothing: units, rules, overlays, binaries, the chroot, and
+  # the odd directories an older script version created by expanding a variable inside a quoted heredoc.
+  sudo -v || { echo "This needs sudo. Run it from a terminal where you can enter your password." >&2; exit 1; }
+  ALL=0; [ "${2:-}" = --all ] && ALL=1
+  echo "This removes:"
+  echo "  service rx3 + rx3-priv/rx3-pointer/rx3-overlay-*/rx3-hotkeys-* units, udev rules 97/98/99-rx3-*"
+  echo "  $RX3_ROOT (the chroot, rebuilt by build-rootfs.sh)"
+  echo "  $RX3_USB (USB copy-on-write layers: your sticks are untouched, only the firmware's edits to them)"
+  echo "  $RX3_BINDIR/rx3-fb-present, rx3-touch-bridge, $RX3_LOGDIR/rx3-*.log, pi-runtime/, rbp-pi, build/"
+  [ $ALL = 1 ] && echo "  extracted/, runtime-symlinks.json, the downloaded firmware and source ZIPs (--all)"
+  for d in "$RX3_HOME"/'$RX3_'* "$RX3_HOME"/'$R' "$RX3_HOME"/'$H'; do [ -e "$d" ] && echo "  stray directory from an old script: $d"; done
+  printf "Continue? [y/N] "; read -r a; [ "$a" = y ] || [ "$a" = Y ] || { echo "aborted"; exit 1; }
+  sudo systemctl disable --now rx3 2>/dev/null
+  sudo systemctl stop rx3-priv rx3-pointer 'rx3-overlay-*' 'rx3-hotkeys-*' 2>/dev/null
+  sudo rm -f /etc/systemd/system/rx3.service /etc/udev/rules.d/97-rx3-input.rules /etc/udev/rules.d/98-rx3-flx4.rules /etc/udev/rules.d/99-rx3-usb.rules
+  sudo systemctl daemon-reload; sudo udevadm control --reload
+  for m in $(findmnt -rn -o TARGET | grep -E "^($RX3_ROOT|$RX3_USB)/" | sort -r); do sudo umount -l "$m" 2>/dev/null; done
+  sudo rm -rf "$RX3_ROOT" "$RX3_USB" "$RX3_BINDIR/rx3-fb-present" "$RX3_BINDIR/rx3-touch-bridge" "$RX3_LOGDIR"/rx3-*.log \
+    "$RX3_HOME/pi-runtime" "$RX3_HOME/rbp-pi" "$RX3_HOME/build" "$RX3_HOME/__pycache__" "$RX3_HOME"/'$RX3_'* "$RX3_HOME"/'$R' "$RX3_HOME"/'$H'
+  [ $ALL = 1 ] && sudo rm -rf "$RX3_HOME/extracted" "$RX3_HOME/runtime-symlinks.json" "$RX3_HOME"/official-source-*.zip "$RX3_HOME"/XDJ-RX3_*.zip "$RX3_HOME/aes256.key"
+  ok "clean. Next: git pull, then ./install.sh doctor"
+  exit 0
+fi
 if [ "${1:-}" = desktop ]; then
   # Undo everything the install changed about how the machine boots and who owns the audio devices.
   # The chroot, the scripts and the udev rules are left alone: ./install.sh puts it back.

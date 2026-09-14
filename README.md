@@ -11,7 +11,8 @@ handling with copy-on-write, and the notes that document everything non-obvious.
 
 Branches: `main` is the HDMI-first layout with on-screen mixer controls; **`7inch`** is the touch-panel
 layout for the Raspberry Pi Touch Display 2 (bilinear scaling, 60 Hz, sidebar of four buttons), see the
-top of `INSTALL.md` there.
+top of `INSTALL.md` there; `Dev_tools` carries the debug aids (keyboard hotkeys to stop/restart the player
+and dump diagnostics, `install.sh clean`, `rx3-logs.sh`), which are merged into both.
 
 Status: working daily-driver setup. See [`STATUS.md`](STATUS.md) for the feature-by-feature list.
 
