@@ -1,14 +1,8 @@
 # Rx3-flx4
 
-Run the **Pioneer XDJ-RX3 firmware (v1.19) player on a Raspberry Pi 5**, with a **Pioneer DDJ-FLX4** or **DDJ-400**
-as the controller and sound card (the FLX4 is verified on hardware; the 400 is mapped from Pioneer's layout and
-Mixxx's mapping and awaits a real unit). The connected controller is detected automatically.
+Emulation, and cross-compatibility testing Pioneer XDJ-RX3 firmware (v1.19) player on a Raspberry Pi 5, with a Pioneer DDJ-FLX4 or DDJ-400 as the controller and sound card (the FLX4 is verified on hardware; the 400 is mapped from Pioneer's layout and Mixxx's mapping and awaits a real unit). The connected controller is detected automatically.
 
-This is the real RX3 firmware executing in an ARM32 chroot — not Mixxx, not an emulator, not a
-reimplementation. This repository holds the host-side scaffolding that makes it run: the chroot
-builder, launch and shutdown scripts, the `LD_PRELOAD` shims that stand in for the RX3's missing
-hardware, a MIDI bridge that maps the FLX4 onto the firmware's internal key events, USB media
-handling with copy-on-write, and the notes that document everything non-obvious.
+This is a working research repository, not a finished firmware port or installer.
 
 Branches: `main` is the HDMI-first layout with on-screen mixer controls; **`7inch`** is the touch-panel
 layout for the Raspberry Pi Touch Display 2 (bilinear scaling, 60 Hz, sidebar of four buttons), see the
