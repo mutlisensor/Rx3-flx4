@@ -118,6 +118,9 @@ appears on the display. A USB mouse works as a pointer until you attach a touchs
   BACK/UP/DOWN/ENTER/LOAD/PLAY buttons are gone. All of them exist on the DDJ-FLX4 (checked against the
   bridge's mapping) or in the firmware's own touch UI. What remains is a sidebar with the four things the
   FLX4 does not have: SOURCE, BROWSE, USB STOP 1 and USB STOP 2 (hold 2 s, timed by the firmware).
+- **Hold BROWSE for 2 s** to open the firmware's SHORTCUT settings screen (LCD and jog brightness, vinyl speed
+  adjust, waveform colour, quantize value, headphone mono split, fader curve ...), which had no way in before.
+  A shorter tap is the plain BROWSE key.
 - A USB mouse still works as a pointer, and `rx3-tap.py` now takes firmware coordinates (1280x800).
 
 Knobs for `rx3.conf`, on top of `RX3_FB` / `RX3_ROTATE`:

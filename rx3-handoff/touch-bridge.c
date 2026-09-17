@@ -15,13 +15,22 @@
 #include <time.h>
 #include "pi-controls.h"
 struct __attribute__((packed)) report {uint8_t down,pad;uint16_t x,y;};
-struct finger {int x,y,down,active,region;};
+struct finger {int x,y,down,active,region,escalated;long down_at;};
 static int control;
 static struct ui_state *state;
+static long millis(void){struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);return t.tv_sec*1000+t.tv_nsec/1000000;}
+#define SHORTCUT_HOLD_MS 2000
+static int key_index(int key){for(int i=0;i<NBUTTONS;i++)if(buttons[i].key==key)return i;return -1;}
 static void command(int key,int op,int ch,int value,float a){struct command c={key,op,ch,value,a,0};if(write(control,&c,sizeof(c))!=sizeof(c))perror("control");}
 /* USB STOP (0x8002) is a plain press/release: the firmware times the hold itself (ejects ~1.9 s after press, an earlier
    release cancels). Never send its code 1 "long-pressed" event without a press: that poisons the slot until tapped. */
 static void button(int i,int down){const struct button*b=&buttons[i];if(down)state->pressed|=1u<<i;else state->pressed&=~(1u<<i);command(b->key,down?0:2,b->channel,0,0);}
+/* On-screen BROWSE: the press is only sent once we know it was a tap (released within 2 s), so a hold never
+   also flips the screen. BROWSE goes library -> deck, and from any other screen -> library. */
+static void browse_tap(void){command(0x202,0,0,0,0);command(0x202,2,0,0,0);}
+/* On-screen BROWSE button, held 2 s: opens the SHORTCUT settings screen (LCD/jog brightness, vinyl speed adjust,
+   waveform colour, quantize, headphone mono/split, fader curve ...) instead of the plain browse tap. */
+static void shortcut_open(void){command(0x210,0,0,0,0);command(0x210,2,0,0,0);}
 int main(int argc,char**argv){
  if(argc<3)return 2;
  int replay=!strcmp(argv[1],"--replay"),mouse=!strcmp(argv[1],"--mouse");if(mouse){if(argc<4)return 2;argv++;}
@@ -37,6 +46,7 @@ int main(int argc,char**argv){
  fprintf(stderr,"touch bridge: %s, panel %dx%d rotate %d, logical %dx%d, firmware %dx%d at %d,%d, touch %d..%d x %d..%d\n",
   mouse?"mouse":replay?"replay (firmware coordinates)":"touchscreen",W,H,L.rot,L.LW,L.LH,L.cw,L.ch,L.cx,L.cy,ax.minimum,ax.maximum,ay.minimum,ay.maximum);
  if(mouse){fingers[0].x=L.LW/2;fingers[0].y=L.LH/2;state->cursor_x=fingers[0].x;state->cursor_y=fingers[0].y;state->cursor_visible=1;fprintf(stderr,"mouse mode: left=touch, wheel=browse, right=back, middle=enter\n");}
+ int browse_idx=key_index(0x202);
  int slot=0,source=-1,ux=0,uy=0,release=0;struct input_event e;struct pollfd p={in,POLLIN,0};
  for(;;){
   int ready=poll(&p,1,10);if(ready<0)return 1;
@@ -56,14 +66,26 @@ int main(int argc,char**argv){
     fwx=(int)((lx-L.cx)/L.s);fwy=(int)((ly-L.cy)/L.s);}
    if(fwx<0)fwx=0;if(fwx>FW_W-1)fwx=FW_W-1;if(fwy<0)fwy=0;if(fwy>FW_H-1)fwy=FW_H-1;
    if(f->down&&!f->active){f->active=1;int b=button_at(&L,lx,ly);
-    if(b>=0){f->region=1+b;button(b,1);}else if(lx<L.LW-L.col&&source<0){source=i;f->region=0;}else f->region=-1;
+    if(b>=0){f->region=1+b;f->escalated=0;f->down_at=millis();
+      if(b==browse_idx){state->pressed|=1u<<b;}                 /* key send deferred until tap-vs-hold is known */
+      else button(b,1);
+    }else if(lx<L.LW-L.col&&source<0){source=i;f->region=0;}else f->region=-1;
     fprintf(stderr,"touch begin slot=%d logical=%d,%d firmware=%d,%d region=%d\n",i,lx,ly,fwx,fwy,f->region);
    }
    if(f->active&&f->down&&f->region==0){ux=fwx;uy=fwy;}
-   if(f->active&&!f->down){if(f->region>0)button(f->region-1,0);if(source==i){source=-1;release=10;}f->active=0;}
+   if(browse_idx>=0&&f->active&&f->down&&f->region==1+browse_idx&&!f->escalated&&millis()-f->down_at>=SHORTCUT_HOLD_MS){
+    f->escalated=1;state->pressed&=~(1u<<browse_idx);shortcut_open();}
+   if(f->active&&!f->down){
+    if(f->region>0){int b=f->region-1;
+      if(b==browse_idx){state->pressed&=~(1u<<b);if(!f->escalated)browse_tap();}
+      else button(b,0);
+    }
+    if(source==i){source=-1;release=10;}f->active=0;
+   }
   }
   if(source>=0||release){struct report r={source>=0,0,37+(FW_W-ux)*3976/FW_W,72+uy*3856/FW_H};if(write(out,&r,sizeof(r))!=sizeof(r))perror("touch report");if(source<0)release--;}
  }
- for(int i=0;i<10;i++)if(fingers[i].active&&fingers[i].region>0)button(fingers[i].region-1,0);
+ for(int i=0;i<10;i++)if(fingers[i].active&&fingers[i].region>0){int b=fingers[i].region-1;
+  if(b==browse_idx){if(!fingers[i].escalated)browse_tap();}else button(b,0);}
  return 0;
 }

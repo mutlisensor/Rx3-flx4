@@ -19,7 +19,7 @@ struct ui_state {unsigned magic;float level[6];unsigned pressed;unsigned headpho
 struct button {const char *label,*sub;int key,channel;unsigned color;};
 #define NBUTTONS 4
 static const struct button buttons[NBUTTONS]={
- {"SOURCE",0,0x201,0,0x08699c},{"BROWSE",0,0x202,0,0x08699c},
+ {"SOURCE",0,0x201,0,0x08699c},{"BROWSE","hold: shortcuts",0x202,0,0x08699c},
  {"USB STOP 1","hold 2 s",0x8002,1,0x7a2f2f},{"USB STOP 2","hold 2 s",0x8002,2,0x7a2f2f}
 };
 /* Logical canvas = the panel seen upright (LW x LH): rotation 0/180 keep W x H, 90/270 swap them.
