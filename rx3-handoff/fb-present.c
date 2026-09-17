@@ -14,8 +14,13 @@
 #include <time.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
+#include <signal.h>
 #include "pi-controls.h"
 static FT_Face face;static uint32_t *chrome;static struct layout L;
+static unsigned char *fb_mem;static size_t fb_size;
+/* Leaving the last frame on screen (systemctl stop, ESC, Ctrl+C, a crash) looks like a hang. Blank the real
+   panel on the way out; async-signal-safe (no libc calls beyond the plain memory fill and _exit). */
+static void blank_and_exit(int sig){(void)sig;if(fb_mem&&fb_size)for(size_t i=0;i<fb_size;i++)fb_mem[i]=0;_exit(0);}
 static void box(int x,int y,int w,int h,uint32_t c){for(int yy=y;yy<y+h;yy++)for(int xx=x;xx<x+w;xx++)if(xx>=0&&xx<L.LW&&yy>=0&&yy<L.LH)chrome[yy*L.LW+xx]=c;}
 static void label(int cx,int cy,const char *s,int size,uint32_t c){
  FT_Set_Pixel_Sizes(face,0,size);int w=0;for(const char*p=s;*p;p++){FT_Load_Char(face,*p,FT_LOAD_RENDER);w+=face->glyph->advance.x>>6;}
@@ -43,6 +48,7 @@ int main(int argc,char**argv){
  int nearest=0;{const char*e=getenv("RX3_FILTER");if(e&&!strcmp(e,"nearest"))nearest=1;}   /* cheaper for slow boards */
  fprintf(stderr,"presenter: %s %dx%d rotate %d -> logical %dx%d, firmware %dx%d at %d,%d (x%.3f, %s), sidebar %d px, %d fps\n",fbpath,W,H,L.rot,L.LW,L.LH,L.cw,L.ch,L.cx,L.cy,L.s,nearest?"nearest":"bilinear",L.col,fps);
  const uint32_t *s=mmap(0,FW_W*FW_H*4,PROT_READ,MAP_SHARED,src,0);unsigned char *d=mmap(0,f.smem_len,PROT_READ|PROT_WRITE,MAP_SHARED,dst,0);if(s==MAP_FAILED||d==MAP_FAILED)return 1;
+ fb_mem=d;fb_size=f.smem_len;signal(SIGTERM,blank_and_exit);signal(SIGINT,blank_and_exit);
  size_t fbsize=(size_t)f.line_length*H;unsigned char *back=malloc(fbsize);chrome=malloc(sizeof(uint32_t)*L.LW*L.LH);if(!back||!chrome)return 1;
  int sf=open(UI_STATE,O_RDWR|O_CREAT,0600);if(sf<0||ftruncate(sf,sizeof(struct ui_state)))return 1;
  struct ui_state *state=mmap(0,sizeof(*state),PROT_READ|PROT_WRITE,MAP_SHARED,sf,0);if(state==MAP_FAILED)return 1;

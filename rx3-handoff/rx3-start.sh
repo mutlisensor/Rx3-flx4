@@ -8,6 +8,10 @@ LOG=$RX3_LOGDIR/rx3-player.log
 if pgrep -x rbp-pi >/dev/null; then echo "RX3 player already running"; exit 0; fi
 
 # --- host preparation ---------------------------------------------------------
+# The console on tty1 (Raspberry Pi OS autologins a shell there) keeps blinking its text cursor on the same
+# framebuffer the UI is drawn to. Hide it for the player's lifetime; rx3-stop.sh shows it again.
+[ -w /sys/class/graphics/fbcon/cursor_blink ] && echo 0 > /sys/class/graphics/fbcon/cursor_blink 2>/dev/null
+[ -w /dev/tty1 ] && printf '\033[?25l' > /dev/tty1 2>/dev/null
 $H/mount-rx3.sh >/dev/null
 # Root helper that performs the firmware's own USB STOP unmounts (see rx3-priv.sh); its FIFO must exist before launch.
 systemctl is-active -q rx3-priv.service || systemd-run --quiet --unit=rx3-priv --collect -p Restart=on-failure $H/rx3-priv.sh

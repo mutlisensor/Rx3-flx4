@@ -139,7 +139,8 @@ watcher does, and it keeps running even when the player is stopped:
 
 | Key | Effect |
 |---|---|
-| **ESC held for 1 s** | Stop the player (`systemctl stop rx3`). The screen drops to the text console. |
+| **ESC held for 1 s** | Stop the player (`systemctl stop rx3`). The screen is cleared and the text console comes back. |
+| **Ctrl+C** | The same, immediately. |
 | **F5** | Restart the player. |
 | **F12** | Write a diagnostic snapshot to `~/rx3-diag-<date>.txt`: journal, processes, mounts, sound cards, USB, throttling, and the tails of every rx3 log. Attach that file when reporting a hang. |
 
@@ -204,6 +205,11 @@ start-up, the Beat FX CH SELECT switch and SHIFT+PLAY use different codes. Addin
 controller (FLX6, 200 ...) means adding a row there and, if its layout deviates, a case in
 `controller-bridge.py`. The udev rule that moves the player onto a freshly plugged controller is generated
 from that same table by `install.sh`.
+
+**The browse knob** (the push-encoder in the middle of the controller): on the library screen a push selects
+or opens the highlighted item, as on the real RX3. On any other screen (deck, source, the shortcut settings) a
+push opens the library where you left it. The bridge tells the screens apart by looking at the firmware's own
+picture, so this stays right however you got there (touch, BACK, loading a track).
 
 **Testing a mapping without the hardware:** `RX3_CONTROLLER=ddj400 controller-bridge.py -` reads raw MIDI
 bytes from stdin and prints the firmware keys it would send when `RX3_BRIDGE_LOG=1` is set. With a real

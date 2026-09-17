@@ -40,6 +40,27 @@ def send(key, op, ch=0, value=0, analog=0.0):
 def press(key, ch, down): send(key, 0 if down else 2, ch)
 def analog(key, ch, v): send(key, 4, ch, 0, v)
 
+# ---- is the firmware showing its library (browse) screen? ----
+# The browse screen always has its category tabs (ARTIST, ALBUMS ... REC) down the left edge, each with a white
+# label; no other screen (deck, source, shortcut) has text in more than two of those nine places. Reading the
+# firmware's own 1280x800 picture is self-correcting, unlike tracking screen changes we cannot all see (its own
+# touch UI, BACK, loads that stay in the library ...). Measured on firmware 1.19: 9/9 in the library, 2/9 elsewhere.
+FW_FB = ROOT + '/dev/fb0'
+TAB_LABEL_Y = (104, 176, 248, 321, 393, 465, 537, 609, 682)
+def library_showing():
+    try: fd = os.open(FW_FB, os.O_RDONLY)
+    except OSError: return False
+    try:
+        tabs = 0
+        for yc in TAB_LABEL_Y:
+            lit = 0
+            for y in range(yc - 7, yc + 7):
+                row = os.pread(fd, 84 * 4, (y * 1280 + 8) * 4)          # x 8..92, BGRX
+                lit += sum(1 for k in range(0, len(row) - 3, 4) if row[k] > 180 and row[k + 1] > 180 and row[k + 2] > 180)
+            if lit >= 15: tabs += 1
+        return tabs >= 7
+    finally: os.close(fd)
+
 # ---- MIDI note -> (key, channel-kind) for deck note channels (0x90/0x91) ----
 DECK_NOTES = {0x0B: 'play', 0x0C: 'cue', 0x3F: 'shift', 0x10: 'loopin', 0x11: 'loopout', 0x4D: 'reloop',
               0x58: 'sync', 0x5C: 'master', 0x60: 'temporange', 0x54: 'hpcue', 0x36: 'jogtouch',
@@ -54,6 +75,7 @@ MASTER_CC = {0x1F: 'cross', 0x0C: 'hpmix', 0x0D: 'hplv', 0x08: 'masterlv'}
 JOG_CC = {0x21: 'bend', 0x22: 'scratch', 0x23: 'bend', 0x29: 'search'}
 
 msb = {}
+rotary_forwarding = [False]    # browse knob: did the matching press go to the firmware's select key?
 # The RX3 treats jog ticks as an ongoing rotation until it sees a zero-value jog report (the physical jog reports its
 # stopping). These controllers only send ticks while turning, so report zero when the wheel has been idle for a moment.
 jog_last = {1: 0.0, 2: 0.0}; jog_active = {1: False, 2: False}
@@ -113,7 +135,14 @@ def note(status, n, vel):
         m = MIXER_NOTES.get(n)
         if m:
             key, deck = m
-            if key == 'rotary_press': press(K['rotary'], 0, down)
+            if key == 'rotary_press':
+                # Browse knob push: select/enter while in the library (the firmware's own behaviour); on any other
+                # screen it does nothing in the firmware, so open the library instead, like the BROWSE key.
+                if down:
+                    rotary_forwarding[0] = library_showing()
+                    if rotary_forwarding[0]: press(K['rotary'], 0, True)
+                    else: send(K['browse'], 0); send(K['browse'], 2)
+                elif rotary_forwarding[0]: press(K['rotary'], 0, False)
             else: press(K[key], deck, down)
             return
     elif ch in (7, 9):                      # performance pads, deck 1 / deck 2

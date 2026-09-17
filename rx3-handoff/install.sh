@@ -290,6 +290,21 @@ else
   warn "default target is still $(systemctl get-default) - the desktop will compete for the display"
 fi
 
+echo "== console: stop the text cursor blinking through the player's UI"
+# The autologin shell that Raspberry Pi OS puts on tty1 keeps its blinking text-mode cursor even while we draw
+# over the same framebuffer, so it shows up as a flashing rectangle on top of the interface. The kernel option
+# disables it for good; the sysfs write (if present on this kernel) applies it immediately, without a reboot.
+CMDLINE=/boot/firmware/cmdline.txt; [ -f "$CMDLINE" ] || CMDLINE=/boot/cmdline.txt
+if [ -f "$CMDLINE" ] && ! grep -q 'vt\.global_cursor_default=0' "$CMDLINE"; then
+  sudo sed -i '1 s/$/ vt.global_cursor_default=0/' "$CMDLINE" && ok "cursor disabled at boot (takes effect after a reboot)" \
+    || warn "could not edit $CMDLINE - add vt.global_cursor_default=0 to it by hand"
+else
+  ok "cursor already disabled at boot"
+fi
+CURSOR_SYS=/sys/class/graphics/fbcon/cursor_blink
+[ -e "$CURSOR_SYS" ] && sudo sh -c "echo 0 > $CURSOR_SYS" 2>/dev/null
+[ -e "$CURSOR_SYS" ] && [ "$(cat "$CURSOR_SYS" 2>/dev/null)" = 0 ] && ok "cursor disabled immediately (no reboot needed)"
+
 echo
 echo "Done. The service is installed but not started. Start it, and make it start at boot, with:"
 echo "  sudo systemctl enable --now rx3"
