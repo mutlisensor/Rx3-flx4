@@ -142,7 +142,7 @@ if [ "${1:-}" = clean ]; then
   stray_dirs | sed 's/^/  stray directory from an old script: /' 
   printf "Continue? [y/N] "; read -r a; [ "$a" = y ] || [ "$a" = Y ] || { echo "aborted"; exit 1; }
   sudo systemctl disable --now rx3 2>/dev/null
-  sudo systemctl stop rx3-priv rx3-pointer 'rx3-overlay-*' 'rx3-hotkeys-*' 2>/dev/null
+  sudo systemctl stop rx3-priv rx3-pointer rx3-bridge 'rx3-overlay-*' 'rx3-hotkeys-*' 2>/dev/null
   sudo rm -f /etc/systemd/system/rx3.service /etc/udev/rules.d/97-rx3-input.rules /etc/udev/rules.d/98-rx3-flx4.rules /etc/udev/rules.d/98-rx3-controller.rules /etc/udev/rules.d/99-rx3-usb.rules
   sudo systemctl daemon-reload; sudo udevadm control --reload
   for m in $(findmnt -rn -o TARGET | grep -E "^($RX3_ROOT|$RX3_USB)/" | sort -r); do sudo umount -l "$m" 2>/dev/null; done
@@ -244,6 +244,13 @@ FT_LIBS=$(pkg-config --libs freetype2 2>/dev/null || echo -lfreetype)
 gcc -O3 -march=native -DRX3_ROOT_PATH="\"$RX3_ROOT\"" $FT_CFLAGS -o "$RX3_BINDIR/rx3-fb-present" "$RX3_HOME/fb-present.c" $FT_LIBS || {
   echo "Building rx3-fb-present failed. It needs the FreeType headers:  sudo apt install libfreetype6-dev pkg-config" >&2; exit 1; }
 gcc -O2 -DRX3_ROOT_PATH="\"$RX3_ROOT\"" -o "$RX3_BINDIR/rx3-touch-bridge" "$RX3_HOME/touch-bridge.c" || exit 1
+# The player's preload shim (display, audio, controls) lives inside the chroot; rebuild it too, so a git pull plus
+# ./install.sh is enough to pick up shim changes. Written aside and renamed: the running player has it mapped.
+if [ -d "$RX3_ROOT/lib" ]; then
+  arm-linux-gnueabi-gcc -shared -fPIC -O2 -fomit-frame-pointer -fno-builtin -nostdlib -o "$RX3_ROOT/lib/fbshim.so.new" \
+    "$RX3_HOME/fbshim.c" "$RX3_HOME/control-shim.c" && mv -f "$RX3_ROOT/lib/fbshim.so.new" "$RX3_ROOT/lib/fbshim.so" \
+    && ok "rebuilt the player shim (used from the next player start)" || { echo "Building the player shim failed." >&2; exit 1; }
+fi
 ok "built rx3-fb-present and rx3-touch-bridge in $RX3_BINDIR"
 
 echo "== udev rules and systemd unit"
