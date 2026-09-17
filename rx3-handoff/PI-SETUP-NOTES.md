@@ -20,6 +20,23 @@
 - On the TD2 the firmware UI ends up 960x600 px in a 1152x720 picture. `--replay` (rx3-tap.py) and
   `--mouse` feed canvas coordinates directly, independent of the panel.
 
+## Screens, BROWSE and the shortcut menu (2026-09-17)
+
+- BROWSE (0x202): library -> deck; from any other screen (deck, source, shortcut) -> library, at the last
+  position. BACK never leaves the library. LOAD from the library switches to the deck only if something loadable
+  was highlighted. RotarySelector press (0x420c) selects/enters in the library and does nothing elsewhere.
+- SHORTCUT (0x210) opens a full settings screen that was unreachable before: time/remain, auto cue, load lock,
+  quantize beat value, hot cue auto load, LCD and jog LCD brightness, vinyl speed adjust per deck, waveform colour,
+  MY SETTINGS load, EQ/ISO, effect quantize, headphones mono split, mixer mode XDJ-RX/MIDI, fader curve.
+- Library detection from the firmware fb (controller-bridge.py `library_showing`): white label pixels in the nine
+  category tabs, x 8..92, y centres 104,176,248,321,393,465,537,609,682 (+-7), >=15 px each: 9/9 in the library,
+  2-3/9 on deck, source and shortcut. A tracked flag was tried first and drifted (loads, BACK, touch UI).
+- Console cursor: Raspberry Pi OS autologins bash on tty1, whose fbcon cursor kept blinking over the UI. Start hides
+  it (`\e[?25l`, fbcon cursor_blink 0, and install.sh adds vt.global_cursor_default=0); stop shows it again and
+  repaints the console with a chvt 2/1 round trip after the presenter has blanked the panel on SIGTERM.
+- Testing input without hardware: uinput devices work; udev only tags a keyboard if it advertises a full key range.
+  `sudo -u` does not forward SIGKILL, so terminate test bridges with SIGTERM.
+
 ## Controllers (2026-09-14)
 
 - `controllers.py` is the single list: id, USB ids, ALSA hint, keep-alive/init SysEx, Beat FX CH SELECT map,
