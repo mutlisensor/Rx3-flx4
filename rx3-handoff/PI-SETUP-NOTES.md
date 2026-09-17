@@ -28,14 +28,35 @@
 - SHORTCUT (0x210) opens a full settings screen that was unreachable before: time/remain, auto cue, load lock,
   quantize beat value, hot cue auto load, LCD and jog LCD brightness, vinyl speed adjust per deck, waveform colour,
   MY SETTINGS load, EQ/ISO, effect quantize, headphones mono split, mixer mode XDJ-RX/MIDI, fader curve.
-- Library detection from the firmware fb (controller-bridge.py `library_showing`): white label pixels in the nine
-  category tabs, x 8..92, y centres 104,176,248,321,393,465,537,609,682 (+-7), >=15 px each: 9/9 in the library,
-  2-3/9 on deck, source and shortcut. A tracked flag was tried first and drifted (loads, BACK, touch UI).
+- The knob push (RotarySelector) selects on every screen except the deck screen, where it does nothing: on the
+  source screen it opens the focused device. So the bridge only substitutes BROWSE on the deck screen, detected
+  from the firmware fb (`deck_showing`): lit pixels (>170 all channels) in the bottom-panel labels TRACK
+  (36..80, 676..720 x 648..661) = 75 each and TEMPO (396..441, 1036..1081 x 648..661) = 128 each, +-25 %; loaded,
+  playing and INFO-open decks match, library/source/shortcut do not. (Library signature, for reference: white
+  labels in all nine category tabs x 8..92, y 104,176,248,321,393,465,537,609,682.) A tracked flag drifted.
 - Console cursor: Raspberry Pi OS autologins bash on tty1, whose fbcon cursor kept blinking over the UI. Start hides
   it (`\e[?25l`, fbcon cursor_blink 0, and install.sh adds vt.global_cursor_default=0); stop shows it again and
   repaints the console with a chvt 2/1 round trip after the presenter has blanked the panel on SIGTERM.
 - Testing input without hardware: uinput devices work; udev only tags a keyboard if it advertises a full key range.
   `sudo -u` does not forward SIGKILL, so terminate test bridges with SIGTERM.
+
+## Controller unplugged mid-set (2026-09-17)
+
+- Before: the firmware's JuceALSA thread (real-time) spun on the dead PCM (~25 000 failing SYNC_PTR ioctls/s,
+  "ALSA: wait Resolving xrun"), the decks ran erratically, the bridge died, and the re-plug rule restarted the whole
+  player (track lost; since the console handoff, with a sideways console flash).
+- Now fbshim.c owns the two outputs (rx3out/rx3cue): the firmware gets a token (address of its slot), all 20
+  pcm-taking functions it imports map token -> real handle, hw/sw settings are recorded (rate/period/periods need
+  dlvsym ALSA_0.9.0rc4). writei -ENODEV/-EBADFD/-ESHUTDOWN/-EIO marks both lost; lost writes return success paced
+  at real time (measured: 10.13 s of track time over 10.13 s wall) and every 0.5 s both outputs are closed and
+  reopened together (shared dmix slave). Lock is re-entrant (alsa-lib calls public prepare/close internally).
+  Pacing maths stays 32-bit (libgcc_s is loaded in the player and exports __aeabi_uidiv anyway).
+- controller-hotplug.sh: same card as /etc/rx3-ctl -> only bridge-start.sh (bridge is unit rx3-bridge); else
+  restart. rx3-stop.sh detects a restart job (`systemctl list-jobs`) and then keeps the last frame (SIGKILL to
+  the presenter, no console handoff). install.sh now rebuilds fbshim.so too (to .new, then rename).
+- Simulate unplug/replug: `echo 0|1 > /sys/bus/usb/devices/1-1/authorized` (FLX4 on 1-1 here).
+- FAT sticks were mounted with iocharset=ascii (kernel default), so 11 non-ASCII names showed as "?" and the
+  firmware's UTF-8 lookups failed (E-8306 NO FILE). usb-attach.sh adds iocharset=utf8 for vfat.
 
 ## Controllers (2026-09-14)
 

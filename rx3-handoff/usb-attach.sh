@@ -15,6 +15,9 @@ mkdir -p $LOWER $UPPER $WORK $MP
 for old in $R/media/$PORT/*; do mountpoint -q "$old" && umount -l "$old"; done
 mountpoint -q $LOWER && umount -l $LOWER
 OPT="ro"; [ -f "$SRC" ] && OPT="ro,loop"
+# FAT stores long names in UTF-16; without iocharset=utf8 the kernel shows anything non-ASCII as "?", and the
+# firmware (which asks for UTF-8 paths) reports E-8306 NO FILE for tracks such as "Beto’s Horns".
+[ "$(blkid -s TYPE -o value "$SRC" 2>/dev/null)" = vfat ] && OPT="$OPT,iocharset=utf8"
 mount -o $OPT,uid=$RX3_UID,gid=$RX3_UID "$SRC" $LOWER 2>/dev/null || mount -o $OPT "$SRC" $LOWER
 chown $RX3_UID:$RX3_UID $UPPER $WORK
 # Kernel overlayfs rejects case-insensitive (FAT) lower layers, so use fuse-overlayfs for the copy-on-write view.
