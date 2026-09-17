@@ -176,17 +176,16 @@ are drawn.
 
 Displays must be connected **at boot**; a framebuffer is not created on hotplug.
 
-**If the picture is upside down** for the way the panel is mounted, set the rotation. Create
-`rx3-handoff/rx3.conf` with one line and restart the service:
+**Orientation.** Portrait panels default to 90° and landscape ones to 0°. For the Touch Display 2 mounted on
+the DDJ-FLX4 the default, 90°, is right. If the picture is upside down for the way your panel is mounted, turn
+it 180° with a one-line `rx3-handoff/rx3.conf` and restart the service:
 
 ```bash
 echo 'RX3_ROTATE=270' > ~/rx3-handoff/rx3.conf     # 0, 90, 180 or 270, clockwise
 sudo systemctl restart rx3
 ```
 
-(270 is what the panel needs when mounted with its flat cable on the DJ's left; 90 is the other way up.)
-
-Portrait panels default to 90, landscape ones to 0. The touch mapping follows the same setting.
+(Delete the line, or set it to 90, to go back to the default.) The touch mapping follows the same setting.
 `rx3.conf` is also where `RX3_FB` and `RX3_FONT` go; it is sourced by every script.
 
 ---

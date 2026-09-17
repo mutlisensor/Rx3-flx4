@@ -15,7 +15,8 @@
 - `pi-controls.h` holds the one geometry used by both binaries (`make_layout`, `panel_to_canvas`): the
   1920x1200 canvas is letterboxed and rotated onto the panel, and the touch bridge maps a touch through
   the same table, so the earlier 10 % long-axis error (bridge mapped the full 1280 px while the picture
-  was 1152 px) is gone. Rotate 90 puts the canvas's left edge at the panel's top edge (turn the panel
+  was 1152 px) is gone. Mounted on the FLX4 the TD2 wants rotate 90 (the default; the desk setup before that used 270).
+  Rotate 90 puts the canvas's left edge at the panel's top edge (turn the panel
   anticlockwise to read it); 270 is the other way round.
 - 7inch branch: no 1920x1200 canvas any more. `make_layout` gives logical = panel-upright size, a sidebar of
   LW/10 px on the right, and the firmware scaled by min((LW-col)/1280, LH/800) with bilinear tables
