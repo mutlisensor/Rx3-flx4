@@ -127,11 +127,18 @@ Knobs for `rx3.conf`, on top of `RX3_FB` / `RX3_ROTATE`:
 
 | Variable | Effect |
 |---|---|
-| `RX3_FPS=30` | Present at 30 instead of 60 (halves the ceiling on a slow board) |
-| `RX3_FILTER=nearest` | Nearest-neighbour instead of bilinear, roughly a third of the CPU |
+| `RX3_FPS=30` | Timer rate when the display driver has no vertical-blank wait (otherwise the panel's rate is used) |
+| `RX3_FILTER=nearest` | Nearest-neighbour instead of bilinear; slightly cheaper, visibly coarser |
 
-The presenter logs its real rate once a minute to `rx3-present.log` (`frames/s` is the panel rate it
-achieved, `rendered/s` how often the picture actually changed).
+The presenter logs a line once a minute to `rx3-present.log`: frames shown per second, what share of the
+picture changed, and how long a frame took to scale and to copy to the panel. On a Pi 5 a playing deck is
+about 2 ms of work per frame.
+
+**How the picture gets to the panel.** The firmware draws into a memory file at its own 58.6 frames a second
+and tells the player shim when a frame is complete; the shim copies that finished frame aside and wakes the
+presenter, which redraws only the rows that changed, rotates them, and copies the result to the panel right
+after its vertical blank. Nothing samples a half-drawn frame any more, so waveforms no longer tear or
+shimmer, and an idle screen costs nothing.
 
 ---
 
@@ -213,6 +220,11 @@ ignores it, a push opens the library where you left it. On every other screen (l
 settings, menus) the push goes to the firmware as usual, so it selects or opens whatever is focused, exactly like
 tapping it. The bridge recognises the deck screen from the firmware's own picture.
 
+**Heat.** The Pi 5 in a closed pod with no fan reached 85 °C and throttled while the earlier presenter was
+using most of a core; with the current one it settles around 50-70 °C playing. `vcgencmd measure_temp` and
+`vcgencmd get_throttled` (anything but `0x0` means it has throttled since boot) tell you where you are. A fan or
+the official active cooler is still the safe choice inside an enclosure.
+
 **Unplugging the controller mid-set** does not stop the player. The decks keep playing silently at the right
 speed, and when the controller is plugged back in its audio and controls come back within a few seconds, with the
 same tracks loaded. Plugging in a *different* controller restarts the player onto it.
@@ -275,8 +287,8 @@ find out, and expect these to be the limits:
   mid-set.
 - **RAM.** A 3B+ has 1 GB, and the chroot mounts a 256 MB tmpfs. It fits, but do not expect to run a
   desktop alongside it. The installer disables the desktop anyway.
-- **The interface may feel sluggish.** The presenter composites and scales a full frame in software
-  on the CPU.
+- **The interface may feel sluggish.** The presenter scales and rotates in software on the CPU. It uses
+  NEON on 64-bit systems and only redraws what changed, but a 3B+ has a fraction of a Pi 5's speed.
 
 If audio breaks up, the first things to try are moving the USB stick to a powered hub, switching from
 Ethernet to Wi-Fi, and confirming the Pi is not reporting under-voltage:

@@ -2,8 +2,35 @@
 #include <linux/fb.h>
 #include <stdarg.h>
 #include <errno.h>
+#include "fb-frame.h"
 static unsigned yoffset;
 static void clear(void *p,unsigned n){unsigned char *q=p;while(n--)*q++=0;}
+extern int write(int,const void*,unsigned);extern int open(const char*,int,...);extern int close(int);extern long lseek(int,long,int);
+extern void *mmap(void*,unsigned,int,int,int,long);extern void *memcpy(void*,const void*,unsigned);
+typedef struct {long s,ns;} rx3_ts;extern int clock_gettime(int,rx3_ts*);
+static long long now_us(void){rx3_ts t;clock_gettime(1,&t);return (long long)t.s*1000000+t.ns/1000;}
+static void logtext(const char *s){unsigned n=0;while(s[n])n++;write(2,s,n);}
+static void logdec(const char *s,unsigned v){char b[80];unsigned n=0;while(*s&&n<60)b[n++]=*s++;char t[12];int k=0;do{t[k++]='0'+v%10;v/=10;}while(v);while(k)b[n++]=t[--k];b[n++]='\n';write(2,b,n);}
+/* ---- Completed frames for the presenter (fb-frame.h) ----
+   The firmware draws straight into its mmap of /dev/fb0 and calls FBIO_WAITFORVSYNC once per frame, 58.6 times a
+   second, when the picture is complete. A presenter reading the live picture at its own pace kept catching the
+   next frame half drawn (a tear across a scrolling waveform), so copy each finished frame into the snapshot half
+   of the same file under a sequence word (odd while copying), then wake the presenter. The copy takes about a
+   millisecond of the GUI thread's idle time; the presenter never has to race the firmware again. */
+#define BARRIER() asm volatile("dmb ish":::"memory")
+static unsigned char *fbmap;static int fbmap_tried;static unsigned copies,copy_sum,copy_max;
+static void frame_done(void){
+ if(!fbmap){if(fbmap_tried)return;fbmap_tried=1;int fd=open("/dev/fb0",2);if(fd<0)return;
+  long size=lseek(fd,0,2);void *m=size>=RX3_FB_FILE_BYTES?mmap(0,RX3_FB_FILE_BYTES,3,1,fd,0):(void*)-1;close(fd);
+  if(m==(void*)-1){logtext("RX3 frames: /dev/fb0 has no snapshot area (old mount-rx3.sh?); the presenter polls the live picture\n");return;}
+  fbmap=m;}
+ volatile unsigned *seq=(volatile unsigned*)(fbmap+RX3_FB_SEQ);long long t=now_us();
+ *seq=*seq|1;BARRIER();memcpy(fbmap+RX3_FB_SNAP,fbmap,RX3_FB_BYTES);BARRIER();*seq=*seq+1;
+ register long r0 asm("r0")=(long)seq;register long r1 asm("r1")=1;register long r2 asm("r2")=0x7fffffff;register long r7 asm("r7")=240;   /* futex(FUTEX_WAKE) */
+ asm volatile("svc 0":"+r"(r0):"r"(r1),"r"(r2),"r"(r7):"memory");
+ unsigned us=(unsigned)(now_us()-t);copy_sum+=us;if(us>copy_max)copy_max=us;
+ if(++copies==600){logdec("RX3 frames: snapshot copy avg us ",copy_sum/600);logdec("RX3 frames: snapshot copy max us ",copy_max);}
+}
 int ioctl(int fd,unsigned long request,...){
  va_list ap;va_start(ap,request);void *arg=va_arg(ap,void*);va_end(ap);
  if(((request>>8)&255)==0x70){if((request&0x80000000)&&arg){unsigned n=(request>>16)&0x3fff;if(n<=64)clear(arg,n);}return 0;}
@@ -13,21 +40,20 @@ int ioctl(int fd,unsigned long request,...){
  if(request==FBIOGET_FSCREENINFO){struct fb_fix_screeninfo *f=arg;clear(f,sizeof(*f));f->id[0]='R';f->id[1]='X';f->id[2]='3';f->smem_len=1280*800*4;f->type=FB_TYPE_PACKED_PIXELS;f->visual=FB_VISUAL_TRUECOLOR;f->line_length=1280*4;return 0;}
  if(request==FBIOGET_VSCREENINFO){struct fb_var_screeninfo *v=arg;clear(v,sizeof(*v));v->xres=v->xres_virtual=1280;v->yres=v->yres_virtual=800;v->bits_per_pixel=32;v->red.offset=16;v->red.length=8;v->green.offset=8;v->green.length=8;v->blue.length=8;v->height=135;v->width=216;v->pixclock=20000;v->left_margin=40;v->right_margin=40;v->upper_margin=10;v->lower_margin=10;v->hsync_len=20;v->vsync_len=3;return 0;}
  if(request==FBIOPUT_VSCREENINFO){struct fb_var_screeninfo *v=arg;if(v->bits_per_pixel!=32){errno=EINVAL;return -1;}return 0;}
- if(request==FBIOPAN_DISPLAY||request==FBIOPUTCMAP||request==FBIOGETCMAP||request==FBIOBLANK||request==FBIO_WAITFORVSYNC)return 0;
+ if(request==FBIO_WAITFORVSYNC){frame_done();return 0;}
+ if(request==FBIOPAN_DISPLAY||request==FBIOPUTCMAP||request==FBIOGETCMAP||request==FBIOBLANK)return 0;
  register long r0 asm("r0")=fd;register long r1 asm("r1")=request;register void *r2 asm("r2")=arg;register long r7 asm("r7")=54;
  asm volatile("svc 0":"+r"(r0):"r"(r1),"r"(r2),"r"(r7):"memory");
  if(r0<0 && r0>=-4095){errno=-r0;return -1;}return r0;
 }
 extern void *dlsym(void*,const char*);
 extern void *dlvsym(void*,const char*,const char*);
-extern int write(int,const void*,unsigned);
-static void logtext(const char *s){unsigned n=0;while(s[n])n++;write(2,s,n);}
+extern int usleep(unsigned);extern int read(int,void*,unsigned);
 static int logresult(const char *s,int v){char h[12]=" 00000000\n";unsigned u=v;for(int i=8;i>0;i--){h[i]="0123456789abcdef"[u&15];u>>=4;}logtext(s);write(2,h,10);return v;}
 void *dlopen(const char *name,int flags){static void *(*real)(const char*,int);if(!real)real=dlsym((void*)-1,"dlopen");return real(name,flags&~8);}
 /* USB STOP: the firmware unmounts /media/usbN/<part> itself (do_umount0, then do_umount1 every 10 s, then E-8307)
    but runs unprivileged in the chroot, so hand the unmount to the root helper rx3-priv.sh over /dev/rx3-priv and
    wait until the mountpoint is gone. */
-extern int open(const char*,int,...);extern int close(int);extern int usleep(unsigned);
 /* glibc 2.13 exports no stat64 symbol (only __xstat64), so use the raw ARM EABI stat64 syscall (195); st_dev is the first u64. */
 static long sys_stat64(const char *p,void *b){register long r0 asm("r0")=(long)p;register void *r1 asm("r1")=b;register long r7 asm("r7")=195;asm volatile("svc 0":"+r"(r0):"r"(r1),"r"(r7):"memory");return r0;}
 static int is_media(const char *t){const char *m="/media/usb";for(int i=0;m[i];i++)if(t[i]!=m[i])return 0;return 1;}
@@ -49,8 +75,6 @@ int umount(const char *target){return umount2(target,0);}
    goes to the current real handle. A freed real handle can then never be confused with one alsa-lib reuses. Both
    outputs share one dmix slave, so they are closed and reopened together. The lock is re-entrant because alsa-lib
    calls some public functions (prepare, close) on its own internal objects while we hold it. */
-typedef struct {long s,ns;} rx3_ts;extern int clock_gettime(int,rx3_ts*);
-static long long now_us(void){rx3_ts t;clock_gettime(1,&t);return (long long)t.s*1000000+t.ns/1000;}
 extern void *malloc(unsigned);extern void free(void*);
 extern int pthread_mutex_lock(void*);extern int pthread_mutex_unlock(void*);extern unsigned long pthread_self(void);
 static char pcm_mutex[64];      /* pthread_mutex_t; all zero bytes is PTHREAD_MUTEX_INITIALIZER in glibc */
@@ -84,7 +108,9 @@ int snd_pcm_close(void *pcm){
  ulk();
  return r?real(r):0;
 }
-int snd_pcm_hw_params(void*a,void*b){REAL(snd_pcm_hw_params,int,(void*,void*));MAPPED(a,r);return logresult("snd_pcm_hw_params",real(r,b));}
+int snd_pcm_hw_params(void*a,void*b){REAL(snd_pcm_hw_params,int,(void*,void*));MAPPED(a,r);int v=real(r,b);struct outpcm *o=out_of(a);
+ if(v>=0&&o){logtext("RX3 audio: ");logtext(o->target);logdec(" rate ",o->rate);logdec("RX3 audio: period frames ",(unsigned)o->period);logdec("RX3 audio: periods ",o->periods);}
+ return logresult("snd_pcm_hw_params",v);}
 int snd_pcm_hw_params_any(void*a,void*b){REAL(snd_pcm_hw_params_any,int,(void*,void*));MAPPED(a,r);return logresult("snd_pcm_hw_params_any",real(r,b));}
 int snd_pcm_hw_params_set_access(void*a,void*b,int c){REAL(snd_pcm_hw_params_set_access,int,(void*,void*,int));MAPPED(a,r);return logresult("interleaved access",real(r,b,c==4?3:c));}
 int snd_pcm_hw_params_set_format(void*a,void*b,int c){REAL(snd_pcm_hw_params_set_format,int,(void*,void*,int));
@@ -113,7 +139,6 @@ long snd_pcm_readi(void*a,void*b,unsigned long c){REAL(snd_pcm_readi,long,(void*
 int snd_pcm_prepare(void*a){REAL(snd_pcm_prepare,int,(void*));
  lk();struct outpcm *o=out_of(a);int lost=o&&(o->lost||!o->real);void *r=real_of(a);ulk();
  return lost?0:real(r);}
-extern int open(const char*,int,...);extern int read(int,void*,unsigned);extern int close(int);
 /* ALSA control device for the RX3's card queries: read once from /etc/rx3-ctl (e.g. "hw:CARD=DDJFLX4"), default hw:2. */
 static const char *ctl_name(void){static char buf[64];if(!buf[0]){int fd=open("/etc/rx3-ctl",0);int n=fd<0?0:read(fd,buf,sizeof(buf)-1);if(fd>=0)close(fd);if(n<0)n=0;buf[n]=0;while(n>0&&(buf[n-1]=='\n'||buf[n-1]==' '))buf[--n]=0;if(!buf[0]){buf[0]='h';buf[1]='w';buf[2]=':';buf[3]='2';buf[4]=0;}}return buf;}
 int snd_ctl_open(void **ctl,const char *name,int mode){static int(*real)(void**,const char*,int);if(!real)real=dlsym((void*)-1,"snd_ctl_open");logtext("CTL open ");logtext(ctl_name());return logresult("",real(ctl,ctl_name(),mode));}

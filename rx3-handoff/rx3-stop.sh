@@ -25,7 +25,7 @@ for p in usb1 usb2; do
   mountpoint -q $RX3_USB/$p/lower && umount -l $RX3_USB/$p/lower
 done
 rm -f $R/dev/sd??; $RX3_HOME/rx3-mtab.sh
-for m in $R/tmp $R/dev/shm $R/dev/snd $R/dev/printkdrv0 $R/dev/null $R/dev/zero $R/dev/urandom $R/dev/random $R/dev/full; do
+for m in $R/tmp $R/dev/shm $R/dev/fb0 $R/dev/snd $R/dev/printkdrv0 $R/dev/null $R/dev/zero $R/dev/urandom $R/dev/random $R/dev/full; do
   mountpoint -q $m && umount -l $m
 done
 exit 0

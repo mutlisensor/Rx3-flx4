@@ -247,7 +247,7 @@ gcc -O2 -DRX3_ROOT_PATH="\"$RX3_ROOT\"" -o "$RX3_BINDIR/rx3-touch-bridge" "$RX3_
 # The player's preload shim (display, audio, controls) lives inside the chroot; rebuild it too, so a git pull plus
 # ./install.sh is enough to pick up shim changes. Written aside and renamed: the running player has it mapped.
 if [ -d "$RX3_ROOT/lib" ]; then
-  arm-linux-gnueabi-gcc -shared -fPIC -O2 -fomit-frame-pointer -fno-builtin -nostdlib -o "$RX3_ROOT/lib/fbshim.so.new" \
+  arm-linux-gnueabi-gcc -shared -fPIC -O2 -march=armv7-a -fomit-frame-pointer -fno-builtin -nostdlib -o "$RX3_ROOT/lib/fbshim.so.new" \
     "$RX3_HOME/fbshim.c" "$RX3_HOME/control-shim.c" && mv -f "$RX3_ROOT/lib/fbshim.so.new" "$RX3_ROOT/lib/fbshim.so" \
     && ok "rebuilt the player shim (used from the next player start)" || { echo "Building the player shim failed." >&2; exit 1; }
 fi

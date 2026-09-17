@@ -29,6 +29,35 @@
 - Old layout note: on the TD2 the firmware UI ended up 960x600 px in a 1152x720 picture. `--replay` (rx3-tap.py) and
   `--mouse` feed canvas coordinates directly, independent of the panel.
 
+## Display pipeline and latency (2026-09-17, perf branch)
+
+Measured first (Pi 5, FLX4, Touch Display 2, deck 1 playing):
+- The firmware's gui_task draws straight into its mmap of the fb file at a steady 17.05 ms (58.6 Hz, its own timer)
+  and calls FBIO_WAITFORVSYNC once per frame *after* drawing; never FBIOPAN_DISPLAY. It costs 60-70 % of a core on
+  the deck screen whatever we do (20 % on the library screen).
+- The old presenter sampled the live picture at 60 Hz and took ~20 ms per frame (bilinear sample per rotated
+  pixel: every output pixel touched a new cache line of the 4 MB source), so it ran at 70 % of a core, showed
+  ~35 frames/s, and every frame straddled one or two firmware draws: the tear/shimmer on the zoomed waveform.
+- Hot cue: FIFO command -> first non-silent write = 1.4-5 ms (control-shim -> engine). Output buffer is what the
+  firmware asks for: 44100 Hz, period 128, 2 periods (5.8 ms) into the dmix slave (buffer 512). The track streams
+  from the stick through fuse-overlayfs (one read per ~240 ms; a jump = one seek + 4 reads inside ~9 ms). So the
+  audible lag is ~15-20 ms end to end and the visible lag was the display.
+- Thermal: no fan in the pod; at 70 % + 70 % of two cores the SoC sat at 85 °C with the soft limit active
+  (throttled 0xe0006, clock 2.0-2.1 GHz), which slows everything further. Dropped to ~50 °C idle / ~70 °C playing
+  once the presenter was fixed. The "performance" governor was tried and reverted (more idle heat, no measured gain).
+- The fb file lived on the SD card: its 4 MB of dirty pages were written back every 30 s (~11 GB/day).
+
+What changed:
+- fb-frame.h: the chroot's /dev/fb0 file is 2 x 4 MB + a page (mount-rx3.sh binds /run/rx3-fb0, tmpfs). On
+  FBIO_WAITFORVSYNC the shim copies the finished frame into the second half under a seqlock word (odd while
+  copying) and FUTEX_WAKEs it; avg 1.0 ms, max 2.1 ms in gui_task. The shim build needs -march=armv7-a for dmb.
+- fb-present.c: waits on the futex, hashes each source row (NEON FNV per lane) to find changed rows, scales only
+  those (vertical blend auto-vectorised, horizontal pass NEON lane gathers, weights per quad), restores the chrome
+  and cursor on those rows, rotates only the 32-row bands that changed (NEON 4x4 transposes, reversed lanes for
+  rotate 90), then copies the back buffer to the panel after the vertical blank. Pixel-identical to the scalar
+  build (-DRX3_NO_NEON). A frame with nothing changed costs the 4 MB hash (~1.2 ms); the panel copy is ~0.8 ms.
+- Wi-Fi: ssh sessions to the Pi stall every few minutes (5 GHz, -70 dBm); long jobs run detached with systemd-run.
+
 ## Screens, BROWSE and the shortcut menu (2026-09-17)
 
 - BROWSE (0x202): library -> deck; from any other screen (deck, source, shortcut) -> library, at the last
