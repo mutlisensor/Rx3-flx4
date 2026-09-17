@@ -9,8 +9,13 @@
 #include <string.h>
 #include <ft2build.h>
 #include FT_FREETYPE_H
+#include <signal.h>
 #include "pi-controls.h"
 static uint32_t frame[1920*1200],chrome[1920*1200];
+static unsigned char *fb_mem;static size_t fb_size;
+/* Leaving the last frame on screen (systemctl stop, ESC, Ctrl+C, a crash) looks like a hang. Blank the real
+   panel on the way out; async-signal-safe (no libc calls beyond the plain memory fill and _exit). */
+static void blank_and_exit(int sig){(void)sig;if(fb_mem&&fb_size)for(size_t i=0;i<fb_size;i++)fb_mem[i]=0;_exit(0);}
 static FT_Face face;
 static void box(int x,int y,int w,int h,uint32_t c){for(int yy=y;yy<y+h;yy++)for(int xx=x;xx<x+w;xx++)if(xx>=0&&xx<1920&&yy>=0&&yy<1200)frame[yy*1920+xx]=c;}
 static void label(int cx,int cy,const char *s,int size,uint32_t c){
@@ -36,6 +41,7 @@ int main(int argc,char**argv){
  for(int py=0;py<H;py++)for(int px=0;px<W;px++){int cx,cy;idx[py*W+px]=panel_to_canvas(&L,px,py,0,&cx,&cy)?cy*1920+cx:-1;}
  fprintf(stderr,"presenter: %s %dx%d, rotate %d, canvas %dx%d at %d,%d\n",fbpath,W,H,rot,L.dw,L.dh,L.ox,L.oy);
  uint32_t *s=mmap(0,1280*800*4,PROT_READ,MAP_SHARED,src,0);unsigned char *d=mmap(0,f.smem_len,PROT_READ|PROT_WRITE,MAP_SHARED,dst,0);if(s==MAP_FAILED||d==MAP_FAILED)return 1;
+ fb_mem=d;fb_size=f.smem_len;signal(SIGTERM,blank_and_exit);signal(SIGINT,blank_and_exit);
  int sf=open(UI_STATE,O_RDWR|O_CREAT,0600);if(sf<0||ftruncate(sf,sizeof(struct ui_state)))return 1;
  struct ui_state *state=mmap(0,sizeof(*state),PROT_READ|PROT_WRITE,MAP_SHARED,sf,0);if(state==MAP_FAILED)return 1;
  if(state->magic!=0x52583332){*state=(struct ui_state){0x52583332,{1,.6,0,1,.5,.5},0,1};}

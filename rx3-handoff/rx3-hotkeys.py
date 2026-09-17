@@ -3,6 +3,7 @@
 Useful when the player hangs and there is no SSH to hand.
 
   ESC held 1 s   stop the player (systemctl stop rx3): the screen drops to the text console
+  Ctrl+C         the same, immediately (no hold: it is already a deliberate two-key combo)
   F5             restart the player
   F12            write a diagnostic snapshot to ~/rx3-diag-<time>.txt (journal, processes, mounts, cards)
 
@@ -11,12 +12,17 @@ import os, struct, sys, time, subprocess, select
 import rx3_env
 
 EV_KEY, KEY_ESC, KEY_F5, KEY_F12 = 1, 1, 63, 88
+KEY_LEFTCTRL, KEY_RIGHTCTRL, KEY_C = 29, 97, 46
 FMT = 'llHHi'; SZ = struct.calcsize(FMT)
 HOLD = 1.0
 dev = sys.argv[1]
 
 def log(msg):
     subprocess.run(['logger', '-t', 'rx3', 'hotkeys: ' + msg])
+
+def stop_player(reason):
+    # The presenter blanks the panel on SIGTERM and rx3-stop.sh repaints the text console, so this is enough.
+    log(reason + ': stopping the player'); subprocess.Popen(['systemctl', 'stop', 'rx3'])
 
 def diag():
     path = os.path.join(rx3_env.USERHOME, time.strftime('rx3-diag-%Y%m%d-%H%M%S.txt'))
@@ -37,8 +43,8 @@ def diag():
     log('diagnostic snapshot written to ' + path)
 
 fd = os.open(dev, os.O_RDONLY)
-log('watching %s (ESC hold 1 s = stop, F5 = restart, F12 = diagnostics)' % dev)
-esc_down = None; fired = False
+log('watching %s (ESC hold 1 s / Ctrl+C = stop, F5 = restart, F12 = diagnostics)' % dev)
+esc_down = None; fired = False; ctrl_down = False
 while True:
     r, _, _ = select.select([fd], [], [], 0.1)
     if r:
@@ -49,9 +55,13 @@ while True:
         if code == KEY_ESC:
             if value == 1: esc_down = time.monotonic(); fired = False
             elif value == 0: esc_down = None
+        elif code in (KEY_LEFTCTRL, KEY_RIGHTCTRL):
+            ctrl_down = value != 0
+        elif value == 1 and code == KEY_C and ctrl_down:
+            stop_player('Ctrl+C')
         elif value == 1 and code == KEY_F5:
             log('F5: restarting the player'); subprocess.Popen(['systemctl', 'restart', 'rx3'])
         elif value == 1 and code == KEY_F12:
             diag()
     if esc_down and not fired and time.monotonic() - esc_down >= HOLD:
-        fired = True; log('ESC held: stopping the player'); subprocess.Popen(['systemctl', 'stop', 'rx3'])
+        fired = True; stop_player('ESC held')
