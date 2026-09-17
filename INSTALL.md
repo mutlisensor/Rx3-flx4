@@ -173,10 +173,14 @@ controller (FLX6, 200 ...) means adding a row there and, if its layout deviates,
 `controller-bridge.py`. The udev rule that moves the player onto a freshly plugged controller is generated
 from that same table by `install.sh`.
 
-**The browse knob** (the push-encoder in the middle of the controller): on the library screen a push selects
-or opens the highlighted item, as on the real RX3. On any other screen (deck, source, the shortcut settings) a
-push opens the library where you left it. The bridge tells the screens apart by looking at the firmware's own
-picture, so this stays right however you got there (touch, BACK, loading a track).
+**The browse knob** (the push-encoder in the middle of the controller): on the deck screen, where the firmware
+ignores it, a push opens the library where you left it. On every other screen (library, source, the shortcut
+settings, menus) the push goes to the firmware as usual, so it selects or opens whatever is focused, exactly like
+tapping it. The bridge recognises the deck screen from the firmware's own picture.
+
+**Unplugging the controller mid-set** does not stop the player. The decks keep playing silently at the right
+speed, and when the controller is plugged back in its audio and controls come back within a few seconds, with the
+same tracks loaded. Plugging in a *different* controller restarts the player onto it.
 
 **Testing a mapping without the hardware:** `RX3_CONTROLLER=ddj400 controller-bridge.py -` reads raw MIDI
 bytes from stdin and prints the firmware keys it would send when `RX3_BRIDGE_LOG=1` is set. With a real
@@ -262,6 +266,10 @@ python3 extract_cramfs.py
 ```
 
 It must finish with `Extraction complete.` If it does not, the run did not count.
+
+**E-8306: NO FILE for some tracks on a FAT (vfat) stick** — typically names with typographic quotes or accents
+("Beto’s Horns"). FAT sticks were mounted without UTF-8 names, so those names could not be found. Fixed: pull and
+run `./install.sh`, then re-plug the stick (or restart the player).
 
 **`PermissionError: ... extracted/runtime-files/bin/bashbug`** (or any other file there)
 A bug in older copies of `extract_cramfs.py`: firmware files are written with their original

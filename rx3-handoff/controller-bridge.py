@@ -40,25 +40,24 @@ def send(key, op, ch=0, value=0, analog=0.0):
 def press(key, ch, down): send(key, 0 if down else 2, ch)
 def analog(key, ch, v): send(key, 4, ch, 0, v)
 
-# ---- is the firmware showing its library (browse) screen? ----
-# The browse screen always has its category tabs (ARTIST, ALBUMS ... REC) down the left edge, each with a white
-# label; no other screen (deck, source, shortcut) has text in more than two of those nine places. Reading the
-# firmware's own 1280x800 picture is self-correcting, unlike tracking screen changes we cannot all see (its own
-# touch UI, BACK, loads that stay in the library ...). Measured on firmware 1.19: 9/9 in the library, 2/9 elsewhere.
+# ---- is the firmware showing its deck (play) screen? ----
+# The deck screen always has the same white labels in its two bottom panels ("TRACK", "TEMPO" for each deck),
+# whether or not tracks are loaded or playing, and with the INFO panel open. Measured on firmware 1.19: 75, 75,
+# 128, 128 lit pixels in these boxes; the library, source and shortcut screens have nothing like it. Reading the
+# firmware's own 1280x800 picture is self-correcting, unlike tracking screen changes we cannot all see.
 FW_FB = ROOT + '/dev/fb0'
-TAB_LABEL_Y = (104, 176, 248, 321, 393, 465, 537, 609, 682)
-def library_showing():
+DECK_LABELS = (((36, 648, 80, 661), 75), ((676, 648, 720, 661), 75), ((396, 648, 441, 661), 128), ((1036, 648, 1081, 661), 128))
+def deck_showing():
     try: fd = os.open(FW_FB, os.O_RDONLY)
     except OSError: return False
     try:
-        tabs = 0
-        for yc in TAB_LABEL_Y:
+        for (x0, y0, x1, y1), expect in DECK_LABELS:
             lit = 0
-            for y in range(yc - 7, yc + 7):
-                row = os.pread(fd, 84 * 4, (y * 1280 + 8) * 4)          # x 8..92, BGRX
-                lit += sum(1 for k in range(0, len(row) - 3, 4) if row[k] > 180 and row[k + 1] > 180 and row[k + 2] > 180)
-            if lit >= 15: tabs += 1
-        return tabs >= 7
+            for y in range(y0, y1):
+                row = os.pread(fd, (x1 - x0) * 4, (y * 1280 + x0) * 4)   # BGRX
+                lit += sum(1 for k in range(0, len(row) - 3, 4) if row[k] > 170 and row[k + 1] > 170 and row[k + 2] > 170)
+            if abs(lit - expect) > expect // 4: return False
+        return True
     finally: os.close(fd)
 
 # ---- MIDI note -> (key, channel-kind) for deck note channels (0x90/0x91) ----
@@ -136,10 +135,10 @@ def note(status, n, vel):
         if m:
             key, deck = m
             if key == 'rotary_press':
-                # Browse knob push: select/enter while in the library (the firmware's own behaviour); on any other
-                # screen it does nothing in the firmware, so open the library instead, like the BROWSE key.
+                # Browse knob push: the firmware uses it to select/open on every screen except the deck screen,
+                # where it does nothing; there, open the library instead, like the BROWSE key.
                 if down:
-                    rotary_forwarding[0] = library_showing()
+                    rotary_forwarding[0] = not deck_showing()
                     if rotary_forwarding[0]: press(K['rotary'], 0, True)
                     else: send(K['browse'], 0); send(K['browse'], 2)
                 elif rotary_forwarding[0]: press(K['rotary'], 0, False)
