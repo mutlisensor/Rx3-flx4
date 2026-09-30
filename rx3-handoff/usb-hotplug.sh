@@ -10,7 +10,7 @@ case "$ACTION" in
     for P in usb1 usb2; do [ "$(lower_of $P)" = "$DEV" ] && exit 0; done      # already attached
     PORT=""; for P in usb1 usb2; do [ -z "$(lower_of $P)" ] && { PORT=$P; break; }; done
     [ -z "$PORT" ] && { logger -t rx3 "no free RX3 USB slot for $DEV"; exit 0; }
-    sleep 2
+    [ -n "$RX3_USB_SETTLED" ] || sleep 2     # a freshly plugged stick settles first; one found at start-up already has
     $H/usb-attach.sh "$DEV" $PORT 9>&- && sudo -u $RX3_USER python3 $H/rx3-control.py mount $PORT /media/$PORT/$PART 9>&-
     logger -t rx3 "$PORT attached $DEV" ;;
   remove)

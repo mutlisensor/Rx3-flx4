@@ -20,25 +20,7 @@ static void query_state(void){
  const char *k="realmixer=";while(*k)*p++=*k++;p=putnum(p,realmix(eng));*p++='\n';
  int fd=open("/tmp/rx3-query.txt",01|0100|01000,0644);if(fd>=0){write(fd,buf,p-buf);close(fd);}
 }
-static void *control_thread(void *unused){
- sleep(3);
- int fd=open("/dev/rx3-control",O_RDWR);
- if(fd<0)return 0;
- void *manager=0;
- while(!manager){void *root=*(void *volatile *)0x026867c0;if(root)manager=*(void **)((char*)root+0x64);if(!manager)sleep(1);}
- /* The two physical panel CPUs normally release this startup input gate. */
- ((void (*)(void*,int))0x37c8d8)(manager,3);
- void (*sendkey)(void*,int,int,int,long,float,long)=(void*)0x37ad64;
- for(int ch=1;ch<=2;ch++){
-  const int keys[]={0x5019,0x501a,0x501b,0x501c,0x509d,0x501e};
-  for(int i=0;i<6;i++)sendkey(manager,keys[i],4,ch,0,i==5?1.f:.5f,0);
- }
- sendkey(manager,0x6017,4,0,0,.5f,0);
- sendkey(manager,0x4403,4,0,0,.6f,0);
- sendkey(manager,0x4406,4,0,0,.5f,0);
- sendkey(manager,0x4405,4,0,0,0.f,0);
- sendkey(manager,0x5020,0,1,0,0.f,0);
- sendkey(manager,0x5020,2,1,0,0.f,0);
+static void *setup_thread(void *unused){
  /* Crossfader assignment normally comes from the CROSS FADER CURVE panel switch (one position = THRU, which leaves the
     crossfader inert). Assign CH1=A, CH2=B the way the firmware's own "mixeron" debug command does, once the engine exists. */
  while(!*(void *volatile *)0x011493c0)sleep(1);
@@ -60,6 +42,30 @@ static void *control_thread(void *unused){
   }
   close(names);
  }
+ return 0;
+}
+static void *control_thread(void *unused){
+ sleep(3);
+ int fd=open("/dev/rx3-control",O_RDWR);
+ if(fd<0)return 0;
+ void *manager=0;
+ while(!manager){void *root=*(void *volatile *)0x026867c0;if(root)manager=*(void **)((char*)root+0x64);if(!manager)sleep(1);}
+ /* The two physical panel CPUs normally release this startup input gate. */
+ ((void (*)(void*,int))0x37c8d8)(manager,3);
+ void (*sendkey)(void*,int,int,int,long,float,long)=(void*)0x37ad64;
+ for(int ch=1;ch<=2;ch++){
+  const int keys[]={0x5019,0x501a,0x501b,0x501c,0x509d,0x501e};
+  for(int i=0;i<6;i++)sendkey(manager,keys[i],4,ch,0,i==5?1.f:.5f,0);
+ }
+ sendkey(manager,0x6017,4,0,0,.5f,0);
+ sendkey(manager,0x4403,4,0,0,.6f,0);
+ sendkey(manager,0x4406,4,0,0,.5f,0);
+ sendkey(manager,0x4405,4,0,0,0.f,0);
+ sendkey(manager,0x5020,0,1,0,0.f,0);
+ sendkey(manager,0x5020,2,1,0,0.f,0);
+ /* Mixer setup and the key-name dump wait for the engine and take several seconds; do them on their own thread so
+    the screen accepts SOURCE/BROWSE/touch as soon as it is drawn. Presses made before then queue in the FIFO. */
+ unsigned long setup;pthread_create(&setup,0,setup_thread,0);
  const char ready[]="RX3 control adapter ready\n";write(2,ready,sizeof(ready)-1);
  struct command c;unsigned have=0;
  for(;;){int n=read(fd,(char*)&c+have,sizeof(c)-have);if(n<=0){sleep(1);continue;}have+=n;if(have<sizeof(c))continue;have=0;

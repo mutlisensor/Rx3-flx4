@@ -22,6 +22,9 @@ touch $R/dev/printkdrv0; mountpoint -q $R/dev/printkdrv0 || mount --bind /dev/nu
 
 # --- audio card: the first connected known DJ controller (controllers.py), else the ALSA loopback ---------
 CARD=""; CONTROLLER=""
+# When the service starts well after power-on (it waits for the network), the kernel has long since enumerated
+# everything, so a controller that is still missing is wedged: cut its power straight away instead of waiting 10 s.
+first_cut=10; [ "$(cut -d. -f1 /proc/uptime)" -ge 10 ] && first_cut=1
 for wait in $(seq 1 30); do                       # the controller can enumerate a few seconds after boot
   det=$(python3 $H/controllers.py detect 2>/dev/null) && { CARD=${det##*alsa=}; CONTROLLER=$(echo "$det" | sed 's/.*name=\([^ ]*\).*/\1/'); }
   [ -n "$CARD" ] && break
@@ -30,7 +33,7 @@ for wait in $(seq 1 30); do                       # the controller can enumerate
   # switching (uhubctl "off" only disables the port; the device stays lit), but the RP1 has one USB_VBUS_EN
   # line for all ports, so cut that for a few seconds. Every USB device re-enumerates afterwards, which is
   # why this only runs before any media is attached, and at most twice.
-  if { [ $wait = 10 ] || [ $wait = 22 ]; } && ! findmnt -rn -o TARGET | grep -q "^$R/media/"; then
+  if { [ $wait = $first_cut ] || [ $wait = $((first_cut + 12)) ]; } && ! findmnt -rn -o TARGET | grep -q "^$R/media/"; then
     chip=$(gpioinfo 2>/dev/null | awk '/^gpiochip/{c=$1} /USB_VBUS_EN/{print c}' | head -1)
     if [ -n "$chip" ] && command -v gpioset >/dev/null; then
       logger -t rx3 "no DJ controller after ${wait}s: cutting USB power (USB_VBUS_EN on $chip) for 5 s"
@@ -90,5 +93,14 @@ fi
 $H/input-hotplug.sh     # touchscreen if present, else USB mouse
 
 # --- USB media: attach the first removable partition via copy-on-write overlay and notify -------
-( sleep 8; for dev in /dev/sd?1; do [ -b "$dev" ] && $H/usb-hotplug.sh add "$dev"; done ) > $RX3_USB.log 2>&1 < /dev/null &
+# The firmware learns about a stick from "connect"/"mount" messages on its udev FIFOs; a message written before it
+# has them open is lost. Wait until the control adapter is up and the FIFOs are held open, then attach at once.
+(
+  for i in $(seq 1 60); do
+    P=$(pgrep -x rbp-pi) || break
+    grep -q "control adapter ready" $LOG 2>/dev/null && ls -l /proc/$P/fd 2>/dev/null | grep -q "udev_usbctn2" && break
+    sleep 0.5
+  done
+  for dev in /dev/sd?1; do [ -b "$dev" ] && RX3_USB_SETTLED=1 $H/usb-hotplug.sh add "$dev"; done
+) > $RX3_USB.log 2>&1 < /dev/null &
 exit 0
