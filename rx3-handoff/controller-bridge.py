@@ -62,11 +62,9 @@ def deck_showing():
 
 # ---- MIDI note -> (key, channel-kind) for deck note channels (0x90/0x91) ----
 DECK_NOTES = {0x0B: 'play', 0x0C: 'cue', 0x3F: 'shift', 0x10: 'loopin', 0x11: 'loopout', 0x4D: 'reloop',
-              0x58: 'sync', 0x5C: 'master', 0x60: 'temporange', 0x54: 'hpcue', 0x36: 'jogtouch',
-              0x1B: 'hotcue', 0x6D: 'autobeatloop', 0x20: 'beatjump', 0x68: 'quantize',
+              0x58: 'sync', 0x5C: 'master', 0x60: 'temporange', 0x54: 'hpcue', 0x36: 'jogtouch', 0x68: 'quantize',
               0x40: 'searchfwd', 0x3D: 'searchfwd', 0x3E: 'searchrev', 0x51: 'callprev', 0x53: 'callnext'}
 # SHIFT+PLAY (censor) is added per controller at start-up: 0x0E on the FLX4, 0x47 on the DDJ-400.
-# 0x1B hot cue mode, 0x6D beat loop mode, 0x20 beat jump mode select the pad mode on the RX3 too.
 MIXER_NOTES = {0x46: ('load', 1), 0x47: ('load', 2), 0x41: ('rotary_press', 0), 0x42: ('back', 0)}
 DECK_CC_14 = {0x00: 'tempo'}                       # MSB 0x00 + LSB 0x20 (14-bit)
 DECK_CC = {0x04: 'trim', 0x07: 'eqh', 0x0B: 'eqm', 0x0F: 'eql', 0x13: 'fader'}
@@ -91,6 +89,9 @@ jog_scale = float(os.environ.get('RX3_JOG_SCALE', '1'))
 
 def note(status, n, vel):
     ch = status & 0x0F; down = (status & 0xF0) == 0x90 and vel > 0
+    if ch in (0, 1) and n in PAD_MODES:
+        if down: select_pad_mode(ch + 1, n)
+        return
     if ch in (0, 1):
         deck = ch + 1
         name = DECK_NOTES.get(n)
@@ -99,22 +100,6 @@ def note(status, n, vel):
             press(K['jogtouch'], deck, down); return
         if name == 'hpcue': press(K['hpcue'], deck, down); return
         if name: press(K[name], deck, down); return
-    if ch in (0, 1) and n in PAD_MODES:
-        deck = ch + 1
-        if not down: return
-        pad_mode[deck] = n; show_pad_mode(deck)
-        # Forward to the RX3 only when its own pad mode must change. Its HOT CUE key toggles HOT CUE <-> GATE CUE.
-        if n == 0x1B:
-            if rx3_mode[deck] == 'hotcue': return
-            rx3_mode[deck] = 'hotcue'
-        elif n == 0x20:
-            if rx3_mode[deck] == 'beatjump': return
-            rx3_mode[deck] = 'beatjump'
-        elif n == 0x6D:
-            if rx3_mode[deck] == 'beatloop': return
-            rx3_mode[deck] = 'beatloop'
-        else: return                        # pad fx / sampler / keyboard / key shift have no RX3 equivalent
-    if ch in (0, 1) and n == 0x54 and down: hp_cue[ch + 1] = not hp_cue[ch + 1]; led(status, 0x54, hp_cue[ch + 1])
     if ch in (4, 5):                        # BEAT FX section
         global beatfx_index
         if n == 0x47: press(K['fxonoff'], 0, down); return
@@ -211,17 +196,80 @@ if CTL['keepalive']:
 # ---- LED feedback (the firmware's own panel LEDs are not available to us yet, so we mirror what we know locally) ----
 def led(status, note, on):
     midi_write(bytes([status, note, 0x7F if on else 0x00]))
-    if LOG: print('%s led %02x %02x %s' % (time.strftime('%H:%M:%S'), status, note, 'on' if on else 'off'), flush=True)
+
 PAD_MODES = [0x1B, 0x6D, 0x20, 0x22, 0x1E, 0x69, 0x6F]      # hot cue, beat loop, beat jump, sampler, pad fx1, keyboard, key shift
+# The FLX4 pads send a different note range per pad mode, and only switch range when the host lights that mode's
+# button, so every mode press relights the mode buttons. Three modes exist on the RX3 too; the rest have no RX3
+# equivalent and their pads are ignored.
+PAD_LAYER = {0x1B: 0x00, 0x6D: 0x60, 0x20: 0x20}             # FLX4 pad note base for the modes the RX3 has
+RX3_PAD_MODE = {0x1B: ('hotcue', 14), 0x6D: ('autobeatloop', 15), 0x20: ('beatjump', 17)}   # RX3 key, firmware LED id
 pad_mode = {1: 0x1B, 2: 0x1B}
-rx3_mode = {1: 'hotcue', 2: 'hotcue'}          # what the firmware is in (hotcue / beatjump / beatloop)
-hp_cue = {1: True, 2: False}                                 # control-shim.c enables deck 1 cue at startup
+rx3_mode = {1: 0x1B, 2: 0x1B}       # last RX3 mode we set; only used while the firmware LED table is unavailable
 def show_pad_mode(deck):
     for n in PAD_MODES: led(0x90 + deck - 1, n, n == pad_mode[deck])
-def init_leds():
+def select_pad_mode(deck, n):
+    pad_mode[deck] = n; show_pad_mode(deck)
+    for k in [k for k in led_sent if k[0] == 0x97 + 2 * (deck - 1)]: del led_sent[k]   # the new layer's pads: resend
+    if n not in RX3_PAD_MODE: return
+    key, led_id = RX3_PAD_MODE[n]
+    # Press the RX3's own mode key only on positive evidence that it is in another mode (its mode lights are blank for
+    # a moment at start-up), or in GATE CUE when HOT CUE is wanted: its HOT CUE key toggles HOT CUE <-> GATE CUE, and
+    # the HOT CUE light is white in HOT CUE and yellow-green in GATE CUE.
+    if firmware_leds.read():
+        if firmware_leds.lit(led_id, deck, steady=True):
+            if led_id != 14 or firmware_leds.rgb(14, deck) == (255, 255, 255): return
+        elif not any(firmware_leds.lit(other, deck, steady=True) for _, other in RX3_PAD_MODE.values() if other != led_id): return
+    elif rx3_mode[deck] == n: return
+    rx3_mode[deck] = n
+    press(K[key], deck, True); press(K[key], deck, False)
+
+# ---- Button lights from the firmware (control-shim.c publishes its panel LED table to /tmp/rx3-leds) ----
+# Per LED id and deck: present, state (1 lit, 2 blinking), brightness (0 full, 1 dim), r, g, b, blink period in ms.
+# The FLX4's buttons and pads are single-colour on/off; "dim" means off (the FLX4 keeps its own low backlight).
+class FirmwareLeds:
+    PATH = ROOT + '/tmp/rx3-leds'
+    def __init__(self): self.data = None; self.seq = None
+    def read(self):
+        try:
+            with open(self.PATH, 'rb') as f: d = f.read(16 + 64 * 16)
+        except OSError: self.data = None; return False
+        if len(d) < 16 + 64 * 16 or d[:4] != b'RXL1': self.data = None; return False
+        self.data = d; return True
+    def rgb(self, led_id, deck):
+        o = 16 + (led_id * 2 + deck - 1) * 8; return tuple(self.data[o + 3:o + 6])
+    def lit(self, led_id, deck, steady=False, now=None):
+        o = 16 + (led_id * 2 + deck - 1) * 8; e = self.data[o:o + 8]
+        if not e[0] or e[2] != 0: return False
+        if e[1] == 2 and not steady:
+            period = e[6] | e[7] << 8 or 500
+            return ((now or time.time()) * 1000) % period < period / 2
+        return e[1] in (1, 2)
+firmware_leds = FirmwareLeds()
+DECK_LEDS = {1: 0x0B, 2: 0x0C, 4: 0x58, 7: 0x10, 8: 0x11, 50: 0x54}   # play, cue, beat sync, loop in, loop out, headphone cue
+led_sent = {}
+def led_set(status, note, on):
+    if led_sent.get((status, note)) != on: led_sent[(status, note)] = on; led(status, note, on)
+def led_loop():
     time.sleep(1.0)
-    for d in (1, 2): show_pad_mode(d); led(0x90 + d - 1, 0x54, hp_cue[d])
-threading.Thread(target=init_leds, daemon=True).start()
+    for d in (1, 2): show_pad_mode(d)
+    # Start both decks in HOT CUE, matching the FLX4's pad layer, once the firmware's LEDs say what the RX3 is in.
+    for i in range(150):
+        if firmware_leds.read() and any(firmware_leds.lit(m, 1, steady=True) for m in (14, 15, 17)): break
+        time.sleep(0.1)
+    if firmware_leds.data:
+        print('controller-bridge: button lights follow the firmware (%s)' % firmware_leds.PATH, flush=True)
+        for d in (1, 2): select_pad_mode(d, 0x1B)
+    else: print('controller-bridge: no firmware LED table (old player shim?): only the pad mode buttons are lit', flush=True)
+    while True:
+        time.sleep(0.03)
+        if not firmware_leds.read(): continue
+        now = time.time()
+        for d in (1, 2):
+            for led_id, n in DECK_LEDS.items(): led_set(0x90 + d - 1, n, firmware_leds.lit(led_id, d, now=now))
+            base = PAD_LAYER.get(pad_mode[d])
+            if base is None: continue
+            for i in range(8): led_set(0x97 + 2 * (d - 1), base + i, firmware_leds.lit(18 + i, d, now=now))
+threading.Thread(target=led_loop, daemon=True).start()
 
 # ---- Sound Color FX: the RX3 needs an effect selected before the per-channel COLOR knobs do anything ----
 # Engine effect slots (SoundColorFxManager ctor order = type number): 1 FILTER, 2 NOISE, 3 SWEEP, 4 DUB ECHO, 5 SPACE,

@@ -20,6 +20,65 @@ static void query_state(void){
  const char *k="realmixer=";while(*k)*p++=*k++;p=putnum(p,realmix(eng));*p++='\n';
  int fd=open("/tmp/rx3-query.txt",01|0100|01000,0644);if(fd>=0){write(fd,buf,p-buf);close(fd);}
 }
+/* ---- Panel LEDs ----
+   On the real unit the firmware drives its button lights through panel microcontrollers on SPI; here nothing answers,
+   so it never sends them. The state is still computed: every 20 ms ui::PanelComController::timerCallback (UiMain)
+   rebuilds the uif::LedStat held at LedManager+48. Find that LedManager once (through the PanelComController, by its
+   vtable) and publish the LEDs to /tmp/rx3-leds for the controller bridge.
+   LedStat: +4 u16 used, +8 Led[44 bytes], +12 u16 ids, +14 u16 per-id slots (one per deck), +16 u16 index[id*slots+deck-1]
+   (0 = unlit, else 1-based Led). Led: +16 state (1 lit, 2 blinking), +20 brightness (0 full, 1 dim), +28 blink period
+   in ms, +40..42 RGB. Published per id and deck, 8 bytes: present, state, brightness, r, g, b, period lo, hi. */
+extern int sscanf(const char*,const char*,...);
+#define VT_PANELCOM (0x4cfb08+8)
+#define VT_LEDMGR (0x4d5e60+8)
+static struct {unsigned lo,hi,rwp;} regions[1024];static int nregions,scanned,hits;
+static int readable(unsigned a,unsigned len){for(int i=0;i<nregions;i++)if(a>=regions[i].lo&&a+len<=regions[i].hi)return 1;return 0;}
+static int plausible_mgr(unsigned m){
+ if(m&3||!readable(m,128)||*(const unsigned*)m!=VT_LEDMGR)return 0;const unsigned char *st=(const unsigned char*)m+48;
+ unsigned ids=*(const unsigned short*)(st+12),slots=*(const unsigned short*)(st+14),leds=*(const unsigned*)(st+8),idx=*(const unsigned*)(st+16);
+ return ids>0&&ids<=256&&slots>=1&&slots<=4&&readable(leds,44)&&readable(idx,ids*slots*2);}
+/* Readable mappings from /hostproc/self/maps; the PanelComController lives on the heap and holds its LedManager at +88. */
+static const unsigned char *find_led_manager(void){
+ static char buf[131072];int fd=open("/hostproc/self/maps",O_RDONLY);if(fd<0)return 0;   /* the chroot's /proc is the firmware's fake one; mount-rx3.sh mounts a real one here */
+ int n=0,r;while(n<(int)sizeof(buf)-1&&(r=read(fd,buf+n,sizeof(buf)-1-n))>0)n+=r;close(fd);buf[n]=0;
+ nregions=0;
+ for(char *line=buf;*line&&nregions<1024;){unsigned lo,hi;char perm[5];
+  if(sscanf(line,"%x-%x %4s",&lo,&hi,perm)==3&&perm[0]=='r'){regions[nregions].lo=lo;regions[nregions].hi=hi;regions[nregions].rwp=perm[1]=='w'&&perm[3]=='p';nregions++;}
+  char *nl=strchr(line,'\n');if(!nl)break;line=nl+1;}
+ scanned=hits=0;
+ for(int i=0;i<nregions;i++){if(!regions[i].rwp||regions[i].hi-regions[i].lo>(256u<<20))continue;scanned++;
+  for(const unsigned *w=(const unsigned*)regions[i].lo;w<(const unsigned*)regions[i].hi;w++)
+   if(*w==VT_PANELCOM&&readable((unsigned)w,92)){unsigned m=w[22];hits++;if(plausible_mgr(m))return (const unsigned char*)m;}}
+ return 0;
+}
+#define LED_IDS 64
+static void snapshot_leds(const unsigned char *mgr,unsigned char *out){
+ const unsigned char *st=mgr+48;unsigned ids=*(const unsigned short*)(st+12),slots=*(const unsigned short*)(st+14);
+ const unsigned char *leds=*(const unsigned char*const*)(st+8);const unsigned short *idx=*(const unsigned short*const*)(st+16);
+ for(unsigned id=0;id<LED_IDS;id++)for(unsigned d=0;d<2;d++){unsigned char *o=out+16+(id*2+d)*8;
+  unsigned e=id<ids&&d<slots?idx[id*slots+d]:0;
+  if(!e){for(int k=0;k<8;k++)o[k]=0;continue;}
+  const unsigned char *L=leds+44*(e-1);unsigned per=*(const unsigned*)(L+28);
+  o[0]=1;o[1]=L[16];o[2]=L[20];o[3]=L[40];o[4]=L[41];o[5]=L[42];o[6]=per&255;o[7]=(per>>8)&255;}
+}
+static void *led_thread(void *unused){
+ const unsigned char *mgr=0;
+ for(int tries=0;!mgr;tries++){sleep(2);mgr=find_led_manager();if(tries==30&&!mgr){char m[96];int k=0;const char *t="RX3 LEDs: LedManager not found (maps ";while(*t)m[k++]=*t++;
+   unsigned v[3]={nregions,scanned,hits};for(int j=0;j<3;j++){char d[12];int q=0;unsigned x=v[j];do{d[q++]='0'+x%10;x/=10;}while(x);while(q)m[k++]=d[--q];m[k++]=j<2?'/':')';}
+   m[k++]='\n';write(2,m,k);return 0;}}
+ const char m[]="RX3 LEDs: publishing the panel LEDs to /tmp/rx3-leds\n";write(2,m,sizeof(m)-1);
+ int fd=open("/tmp/rx3-leds",O_WRONLY|O_CREAT|O_TRUNC,0644);if(fd<0)return 0;
+ static unsigned char a[16+LED_IDS*2*8],b[sizeof(a)],last[sizeof(a)];unsigned seq=0;
+ a[0]='R';a[1]='X';a[2]='L';a[3]='1';a[8]=LED_IDS;
+ for(;;){
+  usleep(20000);
+  /* The firmware clears and refills the table every 20 ms; publish only a state seen twice in a row. */
+  snapshot_leds(mgr,a+0);usleep(1500);for(int k=0;k<16;k++)b[k]=a[k];snapshot_leds(mgr,b);
+  if(memcmp(a+16,b+16,sizeof(a)-16)||!memcmp(a+16,last+16,sizeof(a)-16))continue;
+  seq++;a[4]=seq;a[5]=seq>>8;a[6]=seq>>16;a[7]=seq>>24;pwrite(fd,a,sizeof(a),0);for(unsigned k=0;k<sizeof(a);k++)last[k]=a[k];
+ }
+ return 0;
+}
 static void *setup_thread(void *unused){
  /* Crossfader assignment normally comes from the CROSS FADER CURVE panel switch (one position = THRU, which leaves the
     crossfader inert). Assign CH1=A, CH2=B the way the firmware's own "mixeron" debug command does, once the engine exists. */
@@ -66,6 +125,7 @@ static void *control_thread(void *unused){
  /* Mixer setup and the key-name dump wait for the engine and take several seconds; do them on their own thread so
     the screen accepts SOURCE/BROWSE/touch as soon as it is drawn. Presses made before then queue in the FIFO. */
  unsigned long setup;pthread_create(&setup,0,setup_thread,0);
+ unsigned long leds;pthread_create(&leds,0,led_thread,0);
  const char ready[]="RX3 control adapter ready\n";write(2,ready,sizeof(ready)-1);
  struct command c;unsigned have=0;
  for(;;){int n=read(fd,(char*)&c+have,sizeof(c)-have);if(n<=0){sleep(1);continue;}have+=n;if(have<sizeof(c))continue;have=0;
