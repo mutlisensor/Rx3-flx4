@@ -28,7 +28,7 @@ K = dict(play=0x4101, cue=0x4102, shift=0x4103, vinyl=0x4104, temporange=0x4107,
          fxonoff=0x448d, fxtime=0x448e, fxdepth=0x448f, beatprev=0x4490, beatnext=0x4491, fxselect=0x448b, fxch=0x448c,
          callnext=0x4322, callprev=0x4323,
          trim=0x5019, eqh=0x501a, eqm=0x501b, eql=0x501c, fader=0x501e, hpcue=0x5020, color=0x509d,
-         cfxfilter=0x50a6, cfxknob=0x50a7, cross=0x6017, browse=0x202, usb1=0x209)
+         cfxfilter=0x50a6, cfxknob=0x50a7, cross=0x6017, browse=0x202, usb1=0x209, mastercue=0x4407)
 PAD = [0x4117 + i for i in range(8)]
 
 fifo = os.open(FIFO, os.O_RDWR | os.O_NONBLOCK)
@@ -115,7 +115,8 @@ def note(status, n, vel):
         return
     elif ch == 6:
         global cfx_index
-        if n == 0x63 and down: cfx_index = (cfx_index + 1) % len(CFX); select_cfx(); return
+        if n == 0x63: press(K['mastercue'], 0, down); return                               # MASTER CUE
+        if n == 0x00 and down: cfx_index = (cfx_index + 1) % len(CFX); select_cfx(); return  # SMART CFX: next colour FX
         m = MIXER_NOTES.get(n)
         if m:
             key, deck = m
@@ -231,10 +232,14 @@ class FirmwareLeds:
     def __init__(self): self.data = None; self.seq = None
     def read(self):
         try:
-            with open(self.PATH, 'rb') as f: d = f.read(16 + 64 * 16)
+            with open(self.PATH, 'rb') as f: d = f.read(16 + 64 * 16 + 8)
         except OSError: self.data = None; return False
         if len(d) < 16 + 64 * 16 or d[:4] != b'RXL1': self.data = None; return False
         self.data = d; return True
+    def level_db(self, deck):
+        # Mixer channel level in dB (DjEngineIF::getInputChLevelMono), published after the LED table.
+        o = 16 + 64 * 16 + 4 * (deck - 1)
+        return struct.unpack_from('<i', self.data, o)[0] if len(self.data) >= o + 4 else None
     def rgb(self, led_id, deck):
         o = 16 + (led_id * 2 + deck - 1) * 8; return tuple(self.data[o + 3:o + 6])
     def lit(self, led_id, deck, steady=False, now=None):
@@ -246,6 +251,14 @@ class FirmwareLeds:
         return e[1] in (1, 2)
 firmware_leds = FirmwareLeds()
 DECK_LEDS = {1: 0x0B, 2: 0x0C, 4: 0x58, 7: 0x10, 8: 0x11, 50: 0x54}   # play, cue, beat sync, loop in, loop out, headphone cue
+MASTER_CUE_LED = 51                                                    # mixer channel (0x96) note 0x63
+# VU meters: the RX3's own channel meter steps (ui::Mixer::MonoLvMeter::calcLedValue: 0-11 segments for -24..+14 dB,
+# table from the firmware), sent as 0-127 on CC 0x02 like Mixxx does; the FLX4 picks its segments from that.
+def meter_step(db):
+    if db is None or db < -24: return 0
+    if db > 14: return 11
+    return (1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6, 7, 7, 7, 8, 8, 8,
+            9, 9, 9, 10, 10, 10)[db + 24]
 led_sent = {}
 def led_set(status, note, on):
     if led_sent.get((status, note)) != on: led_sent[(status, note)] = on; led(status, note, on)
@@ -264,7 +277,10 @@ def led_loop():
         time.sleep(0.03)
         if not firmware_leds.read(): continue
         now = time.time()
+        led_set(0x96, 0x63, firmware_leds.lit(MASTER_CUE_LED, 1, now=now))
         for d in (1, 2):
+            vu = round(meter_step(firmware_leds.level_db(d)) * 127 / 11)
+            if led_sent.get(('vu', d)) != vu: led_sent[('vu', d)] = vu; midi_write(bytes([0xB0 + d - 1, 0x02, vu]))
             for led_id, n in DECK_LEDS.items(): led_set(0x90 + d - 1, n, firmware_leds.lit(led_id, d, now=now))
             base = PAD_LAYER.get(pad_mode[d])
             if base is None: continue

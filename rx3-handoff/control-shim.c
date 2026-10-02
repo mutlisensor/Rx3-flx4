@@ -27,7 +27,9 @@ static void query_state(void){
    vtable) and publish the LEDs to /tmp/rx3-leds for the controller bridge.
    LedStat: +4 u16 used, +8 Led[44 bytes], +12 u16 ids, +14 u16 per-id slots (one per deck), +16 u16 index[id*slots+deck-1]
    (0 = unlit, else 1-based Led). Led: +16 state (1 lit, 2 blinking), +20 brightness (0 full, 1 dim), +28 blink period
-   in ms, +40..42 RGB. Published per id and deck, 8 bytes: present, state, brightness, r, g, b, period lo, hi. */
+   in ms, +40..42 RGB. Published per id and deck, 8 bytes: present, state, brightness, r, g, b, period lo, hi.
+   After the table: the two mixer channels' levels as int32 (djengine::DjEngineIF::getInputChLevelMono, the value
+   ui::Mixer::MonoLvMeter turns into the RX3's channel meter), for the controller's VU meters. */
 extern int sscanf(const char*,const char*,...);
 #define VT_PANELCOM (0x4cfb08+8)
 #define VT_LEDMGR (0x4d5e60+8)
@@ -61,6 +63,22 @@ static void snapshot_leds(const unsigned char *mgr,unsigned char *out){
   const unsigned char *L=leds+44*(e-1);unsigned per=*(const unsigned*)(L+28);
   o[0]=1;o[1]=L[16];o[2]=L[20];o[3]=L[40];o[4]=L[41];o[5]=L[42];o[6]=per&255;o[7]=(per>>8)&255;}
 }
+static void put_levels(unsigned char *o){
+ long (*level)(void*,int)=(void*)0x50170;   /* DjEngineIF::getInputChLevelMono(EnMixerInput); uses the global engine */
+ if(!*(void *volatile *)0x011493c0){for(int k=0;k<8;k++)o[k]=0;return;}
+ for(int ch=0;ch<2;ch++){long v=level(0,ch);for(int k=0;k<4;k++)o[ch*4+k]=(unsigned long)v>>(8*k);}
+}
+/* The firmware's audio thread writes its outputs continuously. Once (2026-10-02) it was found spinning in a SIGSEGV
+   loop in playengine::BeatSync::checkPrecision (null+0x24), its handler returning to the faulting instruction, and
+   all audio stopped for good; the trigger is unknown. Say so in the player log when the writes stop. */
+extern long long rx3_last_audio_write;extern long long rx3_now_us(void);
+static void watch_audio(void){
+ static int stalled;long long last=rx3_last_audio_write;if(!last)return;
+ int now_stalled=rx3_now_us()-last>3000000;
+ if(now_stalled&&!stalled){const char m[]="RX3 audio: the firmware's audio thread has stopped writing for 3 s (crash loop?); restart the player\n";write(2,m,sizeof(m)-1);}
+ if(!now_stalled&&stalled){const char m[]="RX3 audio: the firmware's audio thread is writing again\n";write(2,m,sizeof(m)-1);}
+ stalled=now_stalled;
+}
 static void *led_thread(void *unused){
  const unsigned char *mgr=0;
  for(int tries=0;!mgr;tries++){sleep(2);mgr=find_led_manager();if(tries==30&&!mgr){char m[96];int k=0;const char *t="RX3 LEDs: LedManager not found (maps ";while(*t)m[k++]=*t++;
@@ -68,13 +86,15 @@ static void *led_thread(void *unused){
    m[k++]='\n';write(2,m,k);return 0;}}
  const char m[]="RX3 LEDs: publishing the panel LEDs to /tmp/rx3-leds\n";write(2,m,sizeof(m)-1);
  int fd=open("/tmp/rx3-leds",O_WRONLY|O_CREAT|O_TRUNC,0644);if(fd<0)return 0;
- static unsigned char a[16+LED_IDS*2*8],b[sizeof(a)],last[sizeof(a)];unsigned seq=0;
+ static unsigned char a[16+LED_IDS*2*8+8],b[sizeof(a)],last[sizeof(a)];unsigned seq=0;
  a[0]='R';a[1]='X';a[2]='L';a[3]='1';a[8]=LED_IDS;
  for(;;){
-  usleep(20000);
+  usleep(20000);watch_audio();
   /* The firmware clears and refills the table every 20 ms; publish only a state seen twice in a row. */
   snapshot_leds(mgr,a+0);usleep(1500);for(int k=0;k<16;k++)b[k]=a[k];snapshot_leds(mgr,b);
-  if(memcmp(a+16,b+16,sizeof(a)-16)||!memcmp(a+16,last+16,sizeof(a)-16))continue;
+  if(memcmp(a+16,b+16,LED_IDS*2*8))continue;
+  put_levels(a+16+LED_IDS*2*8);
+  if(!memcmp(a+16,last+16,sizeof(a)-16))continue;
   seq++;a[4]=seq;a[5]=seq>>8;a[6]=seq>>16;a[7]=seq>>24;pwrite(fd,a,sizeof(a),0);for(unsigned k=0;k<sizeof(a);k++)last[k]=a[k];
  }
  return 0;

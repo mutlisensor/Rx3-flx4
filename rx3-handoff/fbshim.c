@@ -171,10 +171,15 @@ static void pace(struct outpcm *o,unsigned long frames){
  if(o->next_due>t)usleep((unsigned)(o->next_due-t));
 }
 /* Audio peak meter: loudest sample written to each output, reported every 256 writes to /tmp/rx3-audio-peaks. */
+/* Last time the firmware's audio thread wrote an output (it writes continuously, silence included); control-shim.c
+   logs when this stops, which is how a crash loop in that thread shows up. */
+long long rx3_last_audio_write;
+long long rx3_now_us(void){return now_us();}
 long snd_pcm_writei(void *pcm,const void *buf,unsigned long frames){
  REAL(snd_pcm_writei,long,(void*,const void*,unsigned long));
  lk();
  struct outpcm *o=out_of(pcm);
+ if(o)rx3_last_audio_write=now_us();
  if(o){unsigned long n=frames*2;int m=o->peak_val;int f=o->format;
   if(f==6||f==10){const int *s=buf;for(unsigned long i=0;i<n;i++){int v=s[i];if(f==6)v=(int)((unsigned)v<<8)>>16;else v>>=16;if(v<0)v=-v;if(v>m)m=v;}}   /* S24_LE in 32-bit words, S32_LE */
   else{const short *s=buf;for(unsigned long i=0;i<n;i++){int v=s[i];if(v<0)v=-v;if(v>m)m=v;}}
