@@ -18,18 +18,50 @@ static void logdec(const char *s,unsigned v){char b[80];unsigned n=0;while(*s&&n
    of the same file under a sequence word (odd while copying), then wake the presenter. The copy takes about a
    millisecond of the GUI thread's idle time; the presenter never has to race the firmware again. */
 #define BARRIER() asm volatile("dmb ish":::"memory")
-static unsigned char *fbmap;static int fbmap_tried;static unsigned copies,copy_sum,copy_max;
+extern char *getenv(const char*);extern int atoi(const char*);extern int usleep(unsigned);
+static unsigned char *fbmap;static int fbmap_tried;static unsigned copies,copy_sum,copy_max,changed_rows;
+/* Row compare, 32 bytes at a time; the snapshot only ever changes here, so equal rows need no copy. */
+static int row_differs(const unsigned *a,const unsigned *b){
+ for(int i=0;i<RX3_FB_W;i+=8)if((a[i]^b[i])|(a[i+1]^b[i+1])|(a[i+2]^b[i+2])|(a[i+3]^b[i+3])|(a[i+4]^b[i+4])|(a[i+5]^b[i+5])|(a[i+6]^b[i+6])|(a[i+7]^b[i+7]))return 1;
+ return 0;}
+/* Frame pacing. The firmware draws its whole screen ~54 times a second whether or not anything changed; that drawing
+   is most of the player's CPU and heat. A frame is "busy" when it changes at least BUSY_ROWS rows (a playing
+   waveform, a scrolling list); a blinking light or a ticking counter is not. After 10 frames without a busy one, hold
+   each further frame here until 1/RX3_FW_IDLE_FPS has passed (default 20); the first busy frame returns to the
+   firmware's own rate. Playback on the deck screen is always busy, so it is unaffected. RX3_FW_FPS caps every frame
+   (default: no cap). */
+#define BUSY_ROWS 24
+static long long pace_last;static unsigned idle_run,idle_us=50000,cap_us,idle_frames=10;static int pace_init;
+static void pace_frame(int changed_rows){
+ if(!pace_init){pace_init=1;const char *e;
+  if((e=getenv("RX3_FW_IDLE_FPS"))&&*e){int f=atoi(e);idle_us=f>0?1000000/f:0;}
+  if((e=getenv("RX3_FW_FPS"))&&*e){int f=atoi(e);cap_us=f>0?1000000/f:0;}}
+ idle_run=changed_rows>=BUSY_ROWS?0:idle_run+1;
+ unsigned want=cap_us;if(idle_run>=idle_frames&&idle_us>want)want=idle_us;
+ long long t=now_us();
+ if(want&&pace_last&&t<pace_last+want){usleep((unsigned)(pace_last+want-t));t=now_us();}
+ pace_last=t;
+}
 static void frame_done(void){
  if(!fbmap){if(fbmap_tried)return;fbmap_tried=1;int fd=open("/dev/fb0",2);if(fd<0)return;
   long size=lseek(fd,0,2);void *m=size>=RX3_FB_FILE_BYTES?mmap(0,RX3_FB_FILE_BYTES,3,1,fd,0):(void*)-1;close(fd);
   if(m==(void*)-1){logtext("RX3 frames: /dev/fb0 has no snapshot area (old mount-rx3.sh?); the presenter polls the live picture\n");return;}
   fbmap=m;}
- volatile unsigned *seq=(volatile unsigned*)(fbmap+RX3_FB_SEQ);long long t=now_us();
- *seq=*seq|1;BARRIER();memcpy(fbmap+RX3_FB_SNAP,fbmap,RX3_FB_BYTES);BARRIER();*seq=*seq+1;
- register long r0 asm("r0")=(long)seq;register long r1 asm("r1")=1;register long r2 asm("r2")=0x7fffffff;register long r7 asm("r7")=240;   /* futex(FUTEX_WAKE) */
- asm volatile("svc 0":"+r"(r0):"r"(r1),"r"(r2),"r"(r7):"memory");
- unsigned us=(unsigned)(now_us()-t);copy_sum+=us;if(us>copy_max)copy_max=us;
- if(++copies==600){logdec("RX3 frames: snapshot copy avg us ",copy_sum/600);logdec("RX3 frames: snapshot copy max us ",copy_max);}
+ volatile unsigned *seq=(volatile unsigned*)(fbmap+RX3_FB_SEQ);unsigned *rowseq=(unsigned*)(fbmap+RX3_FB_ROWSEQ);
+ long long t=now_us();
+ unsigned cur=*seq,next=(cur|1)+1;int first=*(volatile unsigned*)(fbmap+RX3_FB_ROWS_MAGIC_OFF)!=RX3_FB_ROWS_MAGIC,n=0;
+ *seq=cur|1;BARRIER();
+ for(int y=0;y<RX3_FB_H;y++){const unsigned *live=(const unsigned*)(fbmap+y*RX3_FB_W*4);unsigned *snap=(unsigned*)(fbmap+RX3_FB_SNAP+y*RX3_FB_W*4);
+  if(first||row_differs(live,snap)){memcpy(snap,live,RX3_FB_W*4);rowseq[y]=next;n++;}}
+ if(first)*(volatile unsigned*)(fbmap+RX3_FB_ROWS_MAGIC_OFF)=RX3_FB_ROWS_MAGIC;
+ BARRIER();
+ if(n){*seq=next;   /* a new frame for the presenter: wake it */
+  register long r0 asm("r0")=(long)seq;register long r1 asm("r1")=1;register long r2 asm("r2")=0x7fffffff;register long r7 asm("r7")=240;   /* futex(FUTEX_WAKE) */
+  asm volatile("svc 0":"+r"(r0):"r"(r1),"r"(r2),"r"(r7):"memory");}
+ else *seq=cur;     /* nothing changed: same frame, nobody to wake */
+ unsigned us=(unsigned)(now_us()-t);copy_sum+=us;if(us>copy_max)copy_max=us;changed_rows+=n;
+ if(++copies==600){logdec("RX3 frames: compare+copy avg us ",copy_sum/600);logdec("RX3 frames: compare+copy max us ",copy_max);logdec("RX3 frames: changed rows per frame ",changed_rows/600);}
+ pace_frame(n);
 }
 int ioctl(int fd,unsigned long request,...){
  va_list ap;va_start(ap,request);void *arg=va_arg(ap,void*);va_end(ap);

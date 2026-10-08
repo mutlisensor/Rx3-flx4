@@ -11,4 +11,10 @@
 #define RX3_FB_SNAP RX3_FB_BYTES                 /* offset of the completed-frame snapshot */
 #define RX3_FB_SEQ (2*RX3_FB_BYTES)              /* offset of the 32-bit sequence word */
 #define RX3_FB_FILE_BYTES (2*RX3_FB_BYTES+4096)  /* mount-rx3.sh sizes the file to this */
+/* In the same page as the sequence word: a marker, then for each row the sequence value of the last frame that changed
+   it. The shim copies only changed rows into the snapshot, so a reader that last took frame S needs only the rows whose
+   value is above S (and no longer has to scan the whole picture to find them). */
+#define RX3_FB_ROWS_MAGIC_OFF (RX3_FB_SEQ+4)
+#define RX3_FB_ROWS_MAGIC 0x53574f52u            /* "ROWS" */
+#define RX3_FB_ROWSEQ (RX3_FB_SEQ+64)            /* u32[RX3_FB_H] */
 #endif

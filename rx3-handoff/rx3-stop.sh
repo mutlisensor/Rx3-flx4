@@ -20,6 +20,10 @@ if [ $RESTART = 0 ] && [ -w /dev/tty1 ]; then
   command -v chvt >/dev/null && [ "$(fgconsole 2>/dev/null)" = 1 ] && { chvt 2; chvt 1; }
 fi
 systemctl stop rx3-priv.service rx3-pointer.service 2>/dev/null
+# Give the CPU its full clock back (rx3-start.sh capped it while the player ran).
+if [ $RESTART = 0 ]; then
+  for c in /sys/devices/system/cpu/cpu[0-9]*/cpufreq; do [ -w $c/scaling_max_freq ] && cat $c/cpuinfo_max_freq > $c/scaling_max_freq; done
+fi
 for p in usb1 usb2; do
   for mp in $R/media/$p/*; do mountpoint -q "$mp" && umount -l "$mp"; done
   mountpoint -q $RX3_USB/$p/lower && umount -l $RX3_USB/$p/lower

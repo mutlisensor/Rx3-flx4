@@ -29,6 +29,23 @@
 - Old layout note: on the TD2 the firmware UI ended up 960x600 px in a 1152x720 picture. `--replay` (rx3-tap.py) and
   `--mouse` feed canvas coordinates directly, independent of the panel.
 
+## Heat (2026-10-08, perf branch)
+
+Measured with `vcgencmd pmic_read_adc` (VDD_CORE current x volt, 15 s averages), Pi 5, FLX4, TD2:
+- gui_task draws the whole screen every ~18.4 ms whatever changed: 33 % idle deck screen, ~55 % library/paused,
+  61 % playing at 2.4 GHz. It paces itself: draw, FBIO_WAITFORVSYNC (shim frame_done), nanosleep(rest of period).
+  So sleeping in frame_done slows it down with no other effect.
+- frame_done now compares rows (32-byte XOR, ~1 ms) and copies only changed ones into the snapshot, stamping
+  rowseq[y] (fb-frame.h, page after the seq word, magic "ROWS"); seq only advances (and the presenter is only woken)
+  when something changed. Pacing: a frame is busy if >= 24 rows changed; after 10 non-busy frames each frame is held
+  to 1/RX3_FW_IDLE_FPS (20). Counting any change as busy did not work: the library screen changes a few rows ~5x/s.
+- fb-present reads rowseq instead of hashing 4 MB per frame and copies only changed bands to the panel (spans of
+  panel columns at rotate 90/270): 12 % -> <1 % idle, 27 % -> 18 % playing.
+- CPU cap (rx3-start.sh, RX3_CPU_MAX_MHZ, restored by rx3-stop.sh on a real stop), playing: 2.4 GHz 2.58 W,
+  2.0 GHz 2.07 W (gui 72 %), 1.8 GHz 1.92 W (gui 77 %). "performance" governor: no gain, more idle heat.
+- Results at 2.0 GHz: deck screen empty gui 12.5 % core 1.31 W; library 23.5 %; deck loaded paused 23.5 %;
+  playing 71 % 2.06 W; library while playing 44.5 % 1.88 W. RX3_FW_FPS=30 playing: gui 36 %, 1.61 W; 40: 49.5 %.
+
 ## Button lights from the firmware (2026-10-01)
 
 - The firmware's panel LEDs normally go to two panel microcontrollers over SPI (/dev/subucom_spi1.0, 2.0 + _rdy3/4).

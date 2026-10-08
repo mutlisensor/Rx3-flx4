@@ -64,6 +64,14 @@ static inline uint64_t rowhash(const uint32_t *r){uint32x4_t h=vdupq_n_u32(21661
 #else
 static inline uint64_t rowhash(const uint32_t *r){uint32_t h0=2166136261u,h1=h0;for(int x=0;x<FW_W;x+=2){h0=(h0^r[x])*16777619u;h1=(h1^r[x+1])*16777619u;}return ((uint64_t)h0<<32)|h1;}
 #endif
+/* With a current shim the changed rows are already known: each row carries the sequence value of the last frame that
+   changed it, so take only the rows newer than the frame we last took, without reading the rest. */
+static int take_rows(const uint32_t *src,const volatile unsigned *rowseq,unsigned since,int all){
+ int n=0;
+ for(int y=0;y<FW_H;y++){
+  if(all||(int)(rowseq[y]-since)>0){memcpy(prev+(size_t)y*FW_W,src+(size_t)y*FW_W,FW_W*4);rowdirty[y]=1;n++;}else rowdirty[y]=0;}
+ return n;
+}
 static int take_frame(const uint32_t *src,int all){
  int n=0;
  for(int y=0;y<FW_H;y++){const uint32_t *r=src+(size_t)y*FW_W;uint64_t h=rowhash(r);
@@ -144,6 +152,19 @@ static void rotate_out(unsigned char *back,int W,int H,int pitch,int bpp16){
     for(int ly=lyb;ly<ye;ly++){int px=L.rot==90?L.LH-1-ly:ly;put(line,px,canvas[(size_t)ly*L.LW+lx],bpp16);}}}
  }
 }
+/* Back buffer -> panel, only the bands of logical rows that changed: with rotation 90/270 a logical row is a panel
+   column, so each band is a span of columns on every panel row; with 0/180 it is a run of whole panel rows. */
+static void copy_bands(unsigned char *d,const unsigned char *back,int W,int H,int pitch,int bpp16){
+ int bp=bpp16?2:4;
+ for(int y=0;y<L.LH;){
+  if(!outdirty[y]){y++;continue;}
+  int a=y;while(y<L.LH&&outdirty[y])y++;int b=y-1;             /* logical rows a..b changed */
+  if(L.rot==90||L.rot==270){int x0=L.rot==90?L.LH-1-b:a,n=(b-a+1)*bp;
+   for(int py=0;py<H;py++)memcpy(d+(size_t)py*pitch+x0*bp,back+(size_t)py*pitch+x0*bp,n);}
+  else{int p0=L.rot==180?L.LH-1-b:a;memcpy(d+(size_t)p0*pitch,back+(size_t)p0*pitch,(size_t)(b-a+1)*pitch);}
+ }
+ (void)W;
+}
 /* Present right after the panel's vertical blank so the copy runs ahead of the scanout; boards whose driver has
    no vsync ioctl, or whose ioctl returns at once, get a timer at the configured rate instead. */
 static int vsync_ok=1,fps=60;static long period,last_vb,next_tick;
@@ -171,6 +192,8 @@ int main(int argc,char**argv){
  unsigned char *d=mmap(0,f.smem_len,PROT_READ|PROT_WRITE,MAP_SHARED,dst,0);if(smap==MAP_FAILED||d==MAP_FAILED)return 1;
  const uint32_t *live=(const uint32_t*)smap,*snap=(const uint32_t*)(smap+RX3_FB_SNAP);
  volatile const unsigned *seqp=snapshots?(volatile const unsigned*)(smap+RX3_FB_SEQ):0;
+ volatile const unsigned *rowseq=snapshots?(volatile const unsigned*)(smap+RX3_FB_ROWSEQ):0;
+ volatile const unsigned *rowsmagic=snapshots?(volatile const unsigned*)(smap+RX3_FB_ROWS_MAGIC_OFF):0;
  fb_mem=d;fb_size=f.smem_len;signal(SIGTERM,blank_and_exit);signal(SIGINT,blank_and_exit);
  size_t fbsize=(size_t)f.line_length*H;unsigned char *back=malloc(fbsize);
  chrome=malloc(sizeof(uint32_t)*L.LW*L.LH);canvas=malloc(sizeof(uint32_t)*L.LW*L.LH);if(!back||!chrome||!canvas)return 1;
@@ -218,7 +241,9 @@ int main(int argc,char**argv){
     /* Seqlock: take the frame between two equal, even readings; the shim's copy takes about a millisecond, so a
        retry is rare. Give up after a few and use what we have rather than stall. */
     for(int tries=0;;tries++){unsigned s0=*seqp;if(s0&1){usleep(200);continue;}
-     __sync_synchronize();take_frame(snap,first);__sync_synchronize();
+     __sync_synchronize();
+     if(*rowsmagic==RX3_FB_ROWS_MAGIC)take_rows(snap,rowseq,last_seq,first);else take_frame(snap,first);
+     __sync_synchronize();
      if(*seqp==s0||tries>=2){last_seq=s0;if(*seqp!=s0)retries++;break;}retries++;}
    }else take_frame(live,first);
    for(int j=0;j<L.ch;j++)if(rowdirty[sy0[j]]||rowdirty[sy0[j]+1])outdirty[L.cy+j]=1;
@@ -233,7 +258,7 @@ int main(int argc,char**argv){
   for(int y=0;y<L.LH;y++)rows+=outdirty[y];
   long t1=now_us();r_sum+=t1-t0;if(t1-t0>r_max)r_max=t1-t0;renders++;first=0;
   wait_vblank(dst);
-  long t2=now_us();memcpy(d,back,fbsize);long t3=now_us();c_sum+=t3-t2;if(t3-t2>c_max)c_max=t3-t2;frames++;
+  long t2=now_us();copy_bands(d,back,W,H,f.line_length,bpp16);long t3=now_us();c_sum+=t3-t2;if(t3-t2>c_max)c_max=t3-t2;frames++;
  report:;
   long t=now_us();
   if(t-t_report>=60000000L){

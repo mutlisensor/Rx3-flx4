@@ -16,6 +16,14 @@ $H/mount-rx3.sh >/dev/null
 # Root helper that performs the firmware's own USB STOP unmounts (see rx3-priv.sh); its FIFO must exist before launch.
 systemctl is-active -q rx3-priv.service || systemd-run --quiet --unit=rx3-priv --collect -p Restart=on-failure $H/rx3-priv.sh
 for i in $(seq 1 20); do [ -p $R/dev/rx3-priv ] && break; sleep 0.1; done
+# Cap the CPU clock while the player runs (RX3_CPU_MAX_MHZ, rx3-env.sh): less voltage, less heat. rx3-stop.sh restores it.
+if [ "${RX3_CPU_MAX_MHZ:-0}" -gt 0 ] 2>/dev/null; then
+  for c in /sys/devices/system/cpu/cpu[0-9]*/cpufreq; do
+    [ -w $c/scaling_max_freq ] || continue
+    want=$((RX3_CPU_MAX_MHZ * 1000)); hw=$(cat $c/cpuinfo_max_freq); [ $want -gt $hw ] && want=$hw
+    echo $want > $c/scaling_max_freq
+  done
+fi
 # Keep the kernel default RT throttle (95%) so runaway SCHED_RR firmware threads cannot starve Wi-Fi/USB work.
 sysctl -q -w kernel.sched_rt_runtime_us=950000
 touch $R/dev/printkdrv0; mountpoint -q $R/dev/printkdrv0 || mount --bind /dev/null $R/dev/printkdrv0
@@ -66,7 +74,7 @@ chown $U:$U $R/dev/rx3-ui-state
 ulimit -r 99; ulimit -l unlimited; ulimit -c 0
 cd $RX3_USERHOME
 nohup chroot --userspec=$RX3_UID:$RX3_GID --groups=$RX3_GROUPS $R /bin/busybox sh -c \
-  "cd /root/pdj && exec env LD_PRELOAD=/lib/fbshim.so /root/pdj/rbp-pi -a" > $LOG 2>&1 < /dev/null &
+  "cd /root/pdj && exec env LD_PRELOAD=/lib/fbshim.so RX3_FW_IDLE_FPS=$RX3_FW_IDLE_FPS RX3_FW_FPS=$RX3_FW_FPS /root/pdj/rbp-pi -a" > $LOG 2>&1 < /dev/null &
 echo "player started (pid $!)"
 
 # --- host-side helpers: controller MIDI bridge, display presenter, touch bridge ------------------

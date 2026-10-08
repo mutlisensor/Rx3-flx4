@@ -129,6 +129,9 @@ Knobs for `rx3.conf`, on top of `RX3_FB` / `RX3_ROTATE`:
 |---|---|
 | `RX3_FPS=30` | Timer rate when the display driver has no vertical-blank wait (otherwise the panel's rate is used) |
 | `RX3_FILTER=nearest` | Nearest-neighbour instead of bilinear; slightly cheaper, visibly coarser |
+| `RX3_CPU_MAX_MHZ=2000` | CPU clock cap while the player runs (default 2000; `0` = no cap). Lower clock, lower voltage, less heat |
+| `RX3_FW_IDLE_FPS=20` | Redraw rate when the screen is static (default 20; `0` = always full rate) |
+| `RX3_FW_FPS=30` | Cap the firmware's drawing at all times (default: none). Cooler, but the waveform scrolls less smoothly |
 
 The presenter logs a line once a minute to `rx3-present.log`: frames shown per second, what share of the
 picture changed, and how long a frame took to scale and to copy to the panel. On a Pi 5 a playing deck is
@@ -221,7 +224,9 @@ settings, menus) the push goes to the firmware as usual, so it selects or opens 
 tapping it. The bridge recognises the deck screen from the firmware's own picture.
 
 **Heat.** The Pi 5 in a closed pod with no fan reached 85 °C and throttled while the earlier presenter was
-using most of a core; with the current one it settles around 50-70 °C playing. `vcgencmd measure_temp` and
+using most of a core. The player now redraws a static screen at 20 frames a second instead of 54, the display
+only copies what changed, and the CPU clock is capped at 2.0 GHz while it runs. Measured on the SoC rails:
+an idle deck screen 1.3 W (was ~1.6 W), a playing deck 2.1 W (was 2.6 W), or 1.6 W with `RX3_FW_FPS=30`. `vcgencmd measure_temp` and
 `vcgencmd get_throttled` (anything but `0x0` means it has throttled since boot) tell you where you are. A fan or
 the official active cooler is still the safe choice inside an enclosure.
 
