@@ -9,7 +9,7 @@ This is a working research repository, not a finished firmware port or installer
 Branches: `main` (HDMI layout), `7inch` (Touch Display 2 layout), `Dev_tools` (debug aids: keyboard hotkeys
 to stop/restart the player and dump diagnostics, `install.sh clean`, `rx3-logs.sh`).
 
-Status: working daily-driver setup. See [`STATUS.md`](STATUS.md) for the feature-by-feature list.
+Status: working daily-driver setup. See [`STATUS.md`](STATUS.md) for the feature-by-feature list, [`KEYMAP.md`](KEYMAP.md) for what every controller button does, and [`ROADMAP.md`](ROADMAP.md) for planned work.
 
 ## Firmware is not included
 
