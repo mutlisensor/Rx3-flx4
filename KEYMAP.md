@@ -15,7 +15,7 @@ the same layout. "RX3" means the XDJ-RX3 function the firmware performs; everyth
 | BEAT SYNC | Sync on/off | Tempo range (6/10/16 %/wide) |
 | BEAT SYNC, long press | Make this deck the tempo MASTER | — |
 | LOOP IN | Loop in. During a loop: loop-in adjust (turn the jog, press again to finish) | Same |
-| LOOP OUT | Loop out. During a loop: loop-out adjust (turn the jog, press again to finish) | Same |
+| LOOP OUT | Loop out. During a loop: loop-out adjust — turn the jog to move the loop end (one rotation = 1.8 s; anticlockwise shortens, down to ~7 ms for the stutter/roll effect), press again to finish | Same |
 | RELOOP/EXIT | Reloop / exit | Same |
 | CUE/LOOP CALL ◀ ▶ | Call previous / next memory cue or loop | Search back / forward (hold) |
 | Headphone CUE | Headphone cue on/off for the channel | **QUANTIZE on/off** for that deck (both start as `RX3_QUANTIZE`, default off) |
