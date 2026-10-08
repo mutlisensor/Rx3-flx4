@@ -14,10 +14,19 @@ static void query_state(void){
  int (*route)(void*,int)=(void*)0x50708,(*xfa)(void*,int)=(void*)0x4ccc4,(*cfxt)(void*,int)=(void*)0x4e37c,(*playing)(void*,int)=(void*)0x45984,(*realmix)(void*)=(void*)0x4e7f8;
  float (*fader)(void*,int)=(void*)0x4c744,(*trim)(void*,int)=(void*)0x4c51c,(*cfxc)(void*,int)=(void*)0x4e4e4,(*tempo)(void*,int)=(void*)0x45f24;
  void *eng=*(void **)0x011492d8;if(!eng)return;   /* DjEngineIF singleton (same one allinone_debug::mixeron uses) */
- char buf[512],*p=buf;
+ char buf[1024],*p=buf;
  for(int i=0;i<2;i++){const char *l="input";while(*l)*p++=*l++;*p++='0'+i;const char *k=" route=";while(*k)*p++=*k++;p=putnum(p,route(eng,i));k=" xfassign=";while(*k)*p++=*k++;p=putnum(p,xfa(eng,i));k=" fader=";while(*k)*p++=*k++;p=putf(p,fader(eng,i));k=" trim=";while(*k)*p++=*k++;p=putf(p,trim(eng,i));k=" cfxtype=";while(*k)*p++=*k++;p=putnum(p,cfxt(eng,i));k=" cfxcolor=";while(*k)*p++=*k++;p=putf(p,cfxc(eng,i));*p++='\n';}
  for(int i=0;i<2;i++){const char *l="player";while(*l)*p++=*l++;*p++='0'+i;const char *k=" playing=";while(*k)*p++=*k++;p=putnum(p,playing(eng,i));k=" tempo=";while(*k)*p++=*k++;p=putf(p,tempo(eng,i));*p++='\n';}
  const char *k="realmixer=";while(*k)*p++=*k++;p=putnum(p,realmix(eng));*p++='\n';
+ /* Loops: looping, loop in/out adjust mode, and the adjust time in ms (the length of the loop being adjusted). */
+ {int (*looping)(void*,int)=(void*)0x482e4,(*outadj)(void*,int)=(void*)0x493c8,(*inadj)(void*,int)=(void*)0x49318;
+  long (*adjtime)(void*,int)=(void*)0x49528;
+  for(int i=0;i<2;i++){
+   const char *l="loop";while(*l)*p++=*l++;*p++='0'+i;
+   l=" looping=";while(*l)*p++=*l++;p=putnum(p,looping(eng,i)&255);
+   l=" inadj=";while(*l)*p++=*l++;p=putnum(p,inadj(eng,i)&255);
+   l=" outadj=";while(*l)*p++=*l++;p=putnum(p,outadj(eng,i)&255);
+   l=" adjtime=";while(*l)*p++=*l++;p=putnum(p,adjtime(eng,i));*p++='\n';}}
  int fd=open("/tmp/rx3-query.txt",01|0100|01000,0644);if(fd>=0){write(fd,buf,p-buf);close(fd);}
 }
 /* ---- Panel LEDs ----

@@ -33,9 +33,9 @@ PAD = [0x4117 + i for i in range(8)]
 
 fifo = os.open(FIFO, os.O_RDWR | os.O_NONBLOCK)
 LOG = os.environ.get('RX3_BRIDGE_LOG')
-def send(key, op, ch=0, value=0, analog=0.0):
-    if LOG: print('%s key=%04x op=%d ch=%d val=%d a=%.3f' % (time.strftime('%H:%M:%S'), key, op, ch, value, analog), flush=True)
-    try: os.write(fifo, struct.pack('<iiiifi', key, op, ch, value, analog, 0))
+def send(key, op, ch=0, value=0, analog=0.0, extra=0):
+    if LOG: print('%s key=%04x op=%d ch=%d val=%d a=%.3f x=%d' % (time.strftime('%H:%M:%S'), key, op, ch, value, analog, extra), flush=True)
+    try: os.write(fifo, struct.pack('<iiiifi', key, op, ch, value, analog, extra))
     except BlockingIOError: pass
 def press(key, ch, down): send(key, 0 if down else 2, ch)
 def analog(key, ch, v): send(key, 4, ch, 0, v)
@@ -78,8 +78,14 @@ rotary_forwarding = [False]    # browse knob: did the matching press go to the f
 # The RX3 treats jog ticks as an ongoing rotation until it sees a zero-value jog report (the physical jog reports its
 # stopping). These controllers only send ticks while turning, so report zero when the wheel has been idle for a moment.
 jog_last = {1: 0.0, 2: 0.0}; jog_active = {1: False, 2: False}
+# The RX3's jog also reports an absolute position: a wrapping 16-bit pulse counter, 6480 pulses per rotation
+# (playengine::JogPulse: 1.8 s of audio per rotation, 12.25 samples per pulse), in the key message's last field. The
+# firmware uses it for loop in/out adjust (turn the jog to move the loop point), positioning a paused deck and vinyl
+# needle work; speed alone moves nothing there. These controllers send 720 ticks per rotation: 9 pulses per tick.
+JOG_PULSES_PER_TICK = 6480 // 720
+jog_pos = {1: 0, 2: 0}
 def jog_stop(deck):
-    if jog_active[deck]: jog_active[deck] = False; send(K['jog'], 4, deck, 0, 0.0)
+    if jog_active[deck]: jog_active[deck] = False; send(K['jog'], 4, deck, 0, 0.0, jog_pos[deck])
 def jog_moved(deck): jog_last[deck] = time.time(); jog_active[deck] = True
 def jog_watchdog():
     while True:
@@ -155,8 +161,9 @@ def cc(status, c, v):
         if c in (0x24, 0x27, 0x2B, 0x2F, 0x33): return   # LSB echoes of the knobs, ignore
         if c in JOG_CC:
             delta = v - 64                  # the controller sends 64 +/- ticks
+            jog_pos[deck] = (jog_pos[deck] + round(delta * JOG_PULSES_PER_TICK * jog_scale)) & 0xFFFF
             if c == 0x29: delta *= 10
-            send(K['jog'], 4, deck, int(delta * jog_scale), float(delta)); jog_moved(deck); return
+            send(K['jog'], 4, deck, int(delta * jog_scale), float(delta), jog_pos[deck]); jog_moved(deck); return
     elif ch == 4:
         if c == 0x02: msb[(4, 2)] = v; return
         if c == 0x22: analog(K['fxdepth'], 0, (msb.get((4, 2), 0) << 7 | v) / 16383.0); return
