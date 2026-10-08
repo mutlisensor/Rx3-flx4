@@ -47,6 +47,16 @@
   stopped writing" line not followed by "writing again" within 5 s -> systemctl restart rx3. Tested: kill -9 ->
   new player in 10 s; fake stall line -> 15 s.
 - /dev/gpiodrv: bind of /run/rx3-gpiodrv (4096 x 0x01), like /dev/fb0.
+- Jog position (2026-10-09): PlayerInnards::onKey_Jog (0x302c9c) takes IKeyInput+16 (the command's float) as jog
+  speed -> setJogSpeed, and IKeyInput+20 (the command's LAST int, "extra") as an absolute pulse position ->
+  setJogPulse -> JogPulse::update (wrapping 16-bit counter, wrap threshold JOG_POS_TH_ 64383) -> the current
+  receiver's notifyPulse. 6480 pulses per rotation (SEC_PER_ROTATION 1.8 s, SAMPLE_PER_PULSE 12.25). Receivers:
+  LoopAdjust (loop in/out adjust: loop point moves in 294-sample steps, MIN_LOOP_WIDTH 294), AudiblePause, scan,
+  vinyl mode. The bridge used to put the tick delta in "value" and 0 in "extra", so the pulse position was always 0
+  and the jog did nothing in loop adjust (gdb on the chain confirmed pos=0). Now it keeps a per-deck position
+  (+9 pulses per FLX4 tick, 720 ticks/rotation) in "extra". FIFO test: 1080 pulses -> ~300 ms of loop length.
+- query (rx3-control.py query) now also prints loopN looping/inadj/outadj/adjtime (adjtime = loop length in ms while
+  adjusting).
 
 ## Heat (2026-10-08, perf branch)
 
