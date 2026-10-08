@@ -5,7 +5,7 @@ R=$RX3_ROOT
 # A restart (hot-plugged controller, F5, systemctl restart) keeps the last frame on screen until the new player
 # draws; only a real stop blanks the panel and hands the screen back to the text console.
 RESTART=0; systemctl list-jobs --no-legend 2>/dev/null | grep -q "rx3.service *restart" && RESTART=1
-systemctl stop rx3-bridge.service 2>/dev/null
+systemctl stop rx3-watchdog.service rx3-bridge.service 2>/dev/null
 pkill -x rbp-pi; pkill -f "^/usr/bin/python3 $RX3_HOME/controller-bridge"; pkill -f "^python3 $RX3_HOME/controller-bridge"
 if [ $RESTART = 1 ]; then pkill -KILL -x rx3-fb-present; else pkill -x rx3-fb-present; fi
 pkill -f "^$RX3_BINDIR/rx3-touch-bridge"
@@ -29,7 +29,7 @@ for p in usb1 usb2; do
   mountpoint -q $RX3_USB/$p/lower && umount -l $RX3_USB/$p/lower
 done
 rm -f $R/dev/sd??; $RX3_HOME/rx3-mtab.sh
-for m in $R/tmp $R/hostproc $R/dev/shm $R/dev/snd $R/dev/printkdrv0 $R/dev/null $R/dev/zero $R/dev/urandom $R/dev/random $R/dev/full; do
+for m in $R/tmp $R/hostproc $R/dev/shm $R/dev/fb0 $R/dev/gpiodrv $R/dev/snd $R/dev/printkdrv0 $R/dev/null $R/dev/zero $R/dev/urandom $R/dev/random $R/dev/full; do
   mountpoint -q $m && umount -l $m
 done
 exit 0

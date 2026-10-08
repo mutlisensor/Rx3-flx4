@@ -14,11 +14,11 @@ the same layout. "RX3" means the XDJ-RX3 function the firmware performs; everyth
 | TEMPO slider | Tempo (signed: centre = 0 %) | — |
 | BEAT SYNC | Sync on/off | Tempo range (6/10/16 %/wide) |
 | BEAT SYNC, long press | Make this deck the tempo MASTER | — |
-| LOOP IN | Loop in | — *(not mapped: loop-in adjust)* |
-| LOOP OUT | Loop out | — *(not mapped: loop-out adjust)* |
-| RELOOP/EXIT | Reloop / exit | — *(not mapped)* |
+| LOOP IN | Loop in. During a loop: loop-in adjust (turn the jog, press again to finish) | Same |
+| LOOP OUT | Loop out. During a loop: loop-out adjust (turn the jog, press again to finish) | Same |
+| RELOOP/EXIT | Reloop / exit | Same |
 | CUE/LOOP CALL ◀ ▶ | Call previous / next memory cue or loop | Search back / forward (hold) |
-| Headphone CUE | Headphone cue on/off for the channel | **QUANTIZE on/off** for that deck |
+| Headphone CUE | Headphone cue on/off for the channel | **QUANTIZE on/off** for that deck (both start as `RX3_QUANTIZE`, default off) |
 
 ## Pads
 
@@ -28,6 +28,9 @@ the same layout. "RX3" means the XDJ-RX3 function the firmware performs; everyth
 | BEAT LOOP | Pads 1–8 = RX3 beat loop pads | BEAT LOOP mode |
 | BEAT JUMP | Pads 1–8 = RX3 beat jump pads | BEAT JUMP mode |
 | PAD FX1, PAD FX2, SAMPLER, KEYBOARD, KEY SHIFT | Lit, but the pads do nothing | No RX3 equivalent |
+
+Lights: LOOP IN/OUT are lit only while a loop runs (blinking like the RX3; fast while adjusting), RELOOP/EXIT
+while a loop is stored, BEAT FX ON/OFF flashes while an effect is on.
 
 The pad lights show the firmware's state: set hot cues lit, empty ones dark; the active loop/jump pad in the
 other modes. With QUANTIZE on, a hot cue pressed while playing jumps on the next beat (up to half a second at
@@ -88,8 +91,8 @@ other modes. With QUANTIZE on, a hot cue pressed while playing jumps on the next
 
 FLX4 controls that send MIDI the bridge ignores (see [`ROADMAP.md`](ROADMAP.md), phase 2):
 
-- SHIFT + CUE (jump to track start), SHIFT + jog touch, SHIFT + RELOOP/EXIT, SHIFT + LOOP IN / LOOP OUT
-  (loop adjust), SHIFT + BEAT FX ON/OFF, SHIFT + BROWSE turn (waveform zoom in Mixxx).
+- SHIFT + CUE (jump to track start), SHIFT + jog touch, SHIFT + BEAT FX ON/OFF, SHIFT + BROWSE turn (waveform
+  zoom in Mixxx).
 - SHIFT + pads in BEAT LOOP / BEAT JUMP mode (e.g. beat jump size).
 - PAD FX1, PAD FX2, SAMPLER, KEYBOARD, KEY SHIFT pads.
 

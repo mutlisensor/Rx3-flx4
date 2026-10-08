@@ -1,4 +1,4 @@
-# Status — 2026-10-08
+# Status — 2026-10-09
 
 What works, what is unfinished, and what has not been tried. Controls are listed in [`KEYMAP.md`](KEYMAP.md);
 planned work is in [`ROADMAP.md`](ROADMAP.md); the technical detail behind each item is in
@@ -26,11 +26,15 @@ Everything below applies to all branches unless marked. The Pi 5 + FLX4 + Touch 
 - Clean exit: ESC (held 1 s) or Ctrl+C on a USB keyboard stops the player and hands the screen back to the
   console; F5 restarts it, F12 writes a diagnostic snapshot.
 - No blinking console cursor over the UI.
+- Watchdog: if the player exits, or the firmware's audio thread stops writing, the player is restarted within
+  ~15 s (`RX3_AUTO_RESTART`, default on; logged to `rx3-watchdog.log`).
+- `/dev/gpiodrv` (written constantly by the firmware) lives in RAM, not on the SD card.
 
 **Display and touch**
 - `7inch`/`perf`: Touch Display 2, rotation set in `rx3.conf` (default 90° for the panel mounted on the FLX4).
   Touch on the firmware's own UI works everywhere (verified by a person), plus the sidebar: SOURCE, BROWSE
-  (hold 2 s: SHORTCUT settings), USB STOP 1/2 (hold 2 s).
+  (hold 2 s: SHORTCUT settings), USB STOP 1/2 (hold 2 s) showing each stick's volume label, and a status line
+  with the SoC temperature (orange from 78 °C, red "HOT" when throttling) or LOW POWER on under-voltage.
 - `perf`: no tearing on the zoomed waveform; only finished frames are shown and only changed parts redrawn.
 - `main`: HDMI with an on-screen panel (SOURCE, BROWSE, BACK, UP/DOWN, ENTER, LOAD, PLAY, USB STOP, sliders).
 - USB mouse works as a pointer when there is no touch panel.
@@ -51,9 +55,13 @@ Everything below applies to all branches unless marked. The Pi 5 + FLX4 + Touch 
 **DDJ-FLX4**
 - Every deck, mixer, browse, Beat FX and colour FX control in [`KEYMAP.md`](KEYMAP.md), including the
   browse knob (on the deck screen it opens the library; elsewhere it selects, respecting focus).
-- Button lights follow the firmware's own LED state: PLAY, CUE, BEAT SYNC, LOOP IN/OUT, headphone CUE per
-  deck, MASTER CUE, pad mode buttons, and the pads (set hot cues, beat loop, beat jump), blinking where the
-  firmware blinks.
+- Button lights follow the firmware's own LED state: PLAY, CUE, BEAT SYNC, headphone CUE per deck, MASTER CUE,
+  pad mode buttons, and the pads (set hot cues, beat loop, beat jump), blinking where the firmware blinks.
+  LOOP IN/OUT light only while a loop runs (blinking as on the RX3, fast during loop adjust), RELOOP/EXIT while a
+  loop is stored, and BEAT FX ON/OFF flashes while an effect is on.
+- Loop adjust: during a loop, LOOP IN or LOOP OUT (with or without SHIFT) enters the RX3's in/out adjust; turn the
+  jog, press again to finish.
+- Quantize is set the same on both decks once the sticks are attached (`RX3_QUANTIZE`, default off).
 - VU meters show the RX3's own channel meter.
 - Pad modes HOT CUE, BEAT LOOP and BEAT JUMP switch the RX3 too, and the pads keep working after visiting
   PAD FX / SAMPLER.
@@ -73,12 +81,10 @@ Everything below applies to all branches unless marked. The Pi 5 + FLX4 + Touch 
 - **Audio crash loop (seen once)**: the firmware's audio thread got stuck in its beat-sync code and all sound
   stopped until a restart. Not reproduced in four attempts and a soak; the player log now says
   "audio thread has stopped writing" if it happens.
-- **No auto-restart**: if the player crashes, the service does not restart it (`systemctl restart rx3`, or F5).
-- **Device names**: the SOURCE screen shows USB1/USB2, not each stick's volume label.
-- **Quantize starts on for deck 1 and off for deck 2** (firmware default); SHIFT + headphone CUE toggles it.
+- **Device names on the SOURCE screen**: the firmware reads each stick's label but its SOURCE screen draws the
+  slot name (USB1/USB2) regardless; the names are shown on the sidebar's USB STOP buttons instead (`7inch`,
+  `perf`).
 - **SMART CFX light** stays dim (the button works: it steps through the colour effects).
-- **`/dev/gpiodrv`** in the chroot is a regular file on the SD card that the firmware keeps writing to (a few
-  MB a day).
 
 ## Not yet tried by a person
 
