@@ -9,7 +9,8 @@ layout for the Raspberry Pi Touch Display 2 (bilinear scaling, 60 Hz, sidebar of
 top of `INSTALL.md` there; `Dev_tools` carries the debug aids (keyboard hotkeys to stop/restart the player
 and dump diagnostics, `install.sh clean`, `rx3-logs.sh`), which are merged into both.
 
-Status: working daily-driver setup. See [`STATUS.md`](STATUS.md) for the feature-by-feature list.
+Status: working daily-driver setup. See [`STATUS.md`](STATUS.md) for the feature-by-feature list, [`KEYMAP.md`](KEYMAP.md)
+for what every controller button does, and [`ROADMAP.md`](ROADMAP.md) for planned work.
 
 ## Firmware is not included
 
