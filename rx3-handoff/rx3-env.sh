@@ -35,7 +35,10 @@ RX3_FB="${RX3_FB:-$(rx3_pick_fb)}"
 RX3_ROTATE="${RX3_ROTATE:-}"          # 0/90/180/270 clockwise; empty = portrait panels 90, landscape 0
 RX3_FPS="${RX3_FPS:-}"                # presenter rate; empty = 60, synced to the panel's vertical blank
 RX3_FILTER="${RX3_FILTER:-}"          # "nearest" to trade picture quality for CPU on slow boards
-export RX3_FB RX3_ROTATE RX3_FPS RX3_FILTER
+# RX3_CPU_MAX_MHZ caps the CPU clock while the player runs (lower clock, lower voltage: a Pi 5 playing a deck draws
+# about a fifth less core power at 2000 than at 2400); 0 leaves the clock alone.
+RX3_CPU_MAX_MHZ="${RX3_CPU_MAX_MHZ:-2000}"
+export RX3_FB RX3_ROTATE RX3_FPS RX3_FILTER RX3_CPU_MAX_MHZ
 
 # A clone made with sudo leaves this directory owned by root, which would put the chroot somewhere
 # like /root/rx3-rootfs. Judge that by the account's home directory rather than by uid, because the
