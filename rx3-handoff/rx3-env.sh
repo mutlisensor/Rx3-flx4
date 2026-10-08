@@ -36,7 +36,11 @@ RX3_ROTATE="${RX3_ROTATE:-}"          # 0/90/180/270 clockwise; empty = portrait
 # RX3_CPU_MAX_MHZ caps the CPU clock while the player runs (lower clock, lower voltage: a Pi 5 playing a deck draws
 # about a fifth less core power at 2000 than at 2400); 0 leaves the clock alone.
 RX3_CPU_MAX_MHZ="${RX3_CPU_MAX_MHZ:-2000}"
-export RX3_FB RX3_ROTATE RX3_CPU_MAX_MHZ
+# QUANTIZE on both decks once the sticks are attached: off, on, or "firmware" (keep what the player/stick settings say).
+RX3_QUANTIZE="${RX3_QUANTIZE:-off}"
+# Restart the player if it exits or its audio stops (rx3-watchdog.sh); 0 to leave it alone.
+RX3_AUTO_RESTART="${RX3_AUTO_RESTART:-1}"
+export RX3_FB RX3_ROTATE RX3_CPU_MAX_MHZ RX3_QUANTIZE RX3_AUTO_RESTART
 
 # A clone made with sudo leaves this directory owned by root, which would put the chroot somewhere
 # like /root/rx3-rootfs. Judge that by the account's home directory rather than by uid, because the

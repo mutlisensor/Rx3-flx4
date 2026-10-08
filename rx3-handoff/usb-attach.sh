@@ -31,4 +31,8 @@ mountpoint -q $MP || { echo "overlay for $PORT failed:"; journalctl -u $UNIT --n
 # Read-only block node for the firmware's libblkid probe (volume label / fs type); group 44 = the player's gid.
 if [ -b "$SRC" ]; then rm -f $R/dev/$PART; mknod $R/dev/$PART b 0x$(stat -c %t "$SRC") 0x$(stat -c %T "$SRC"); chown root:44 $R/dev/$PART; chmod 640 $R/dev/$PART; fi
 $H/rx3-mtab.sh
+# The stick's volume label (the 7-inch sidebar shows it on the USB STOP buttons; the firmware's SOURCE screen shows slot names).
+mkdir -p $R/tmp/rx3-labels; chmod 755 $R/tmp/rx3-labels
+LABEL=$(blkid -s LABEL -o value "$SRC" 2>/dev/null); [ -n "$LABEL" ] || LABEL=$(basename "$SRC")
+printf '%s\n' "$LABEL" > $R/tmp/rx3-labels/$PORT; chmod 644 $R/tmp/rx3-labels/$PORT
 echo "overlay mounted at $MP (lower=$SRC ro, upper=$UPPER, unit $UNIT)"
