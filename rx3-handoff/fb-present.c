@@ -34,18 +34,45 @@ static unsigned char *fb_mem;static size_t fb_size;
 static void blank_and_exit(int sig){(void)sig;if(fb_mem&&fb_size)for(size_t i=0;i<fb_size;i++)fb_mem[i]=0;_exit(0);}
 static void box(int x,int y,int w,int h,uint32_t c){for(int yy=y;yy<y+h;yy++)for(int xx=x;xx<x+w;xx++)if(xx>=0&&xx<L.LW&&yy>=0&&yy<L.LH)chrome[yy*L.LW+xx]=c;}
 static void label(int cx,int cy,const char *s,int size,uint32_t c){
- FT_Set_Pixel_Sizes(face,0,size);int w=0;for(const char*p=s;*p;p++){FT_Load_Char(face,*p,FT_LOAD_RENDER);w+=face->glyph->advance.x>>6;}
- int x=cx-w/2;for(const char*p=s;*p;p++){if(FT_Load_Char(face,*p,FT_LOAD_RENDER))continue;FT_GlyphSlot g=face->glyph;
+ FT_Set_Pixel_Sizes(face,0,size);int w=0;for(const char*p=s;*p;p++){FT_Load_Char(face,(unsigned char)*p,FT_LOAD_RENDER);w+=face->glyph->advance.x>>6;}
+ int x=cx-w/2;for(const char*p=s;*p;p++){if(FT_Load_Char(face,(unsigned char)*p,FT_LOAD_RENDER))continue;FT_GlyphSlot g=face->glyph;
  for(unsigned y=0;y<g->bitmap.rows;y++)for(unsigned i=0;i<g->bitmap.width;i++){
  int px=x+g->bitmap_left+i,py=cy+size/3-g->bitmap_top+y;unsigned a=g->bitmap.buffer[y*g->bitmap.pitch+i];
  if(px<0||px>=L.LW||py<0||py>=L.LH||!a)continue;uint32_t old=chrome[py*L.LW+px],v=0;
  for(int k=0;k<3;k++){unsigned shift=k*8;v|=((((c>>shift)&255)*a+((old>>shift)&255)*(255-a))/255)<<shift;}chrome[py*L.LW+px]=v;
  }x+=g->advance.x>>6;}
 }
+/* Stick names for the USB STOP buttons: usb-attach.sh writes each slot's volume label to <chroot>/tmp/rx3-labels/usbN
+   (the firmware's own SOURCE screen shows slot names only). */
+static char stick[2][24];
+static int read_sticks(void){
+ int changed=0;
+ for(int n=0;n<2;n++){char path[128],buf[24]={0};snprintf(path,sizeof path,RX3_ROOT_PATH "/tmp/rx3-labels/usb%d",n+1);
+  FILE *f=fopen(path,"r");if(f){if(!fgets(buf,sizeof buf,f))buf[0]=0;fclose(f);}
+  buf[strcspn(buf,"\r\n")]=0;if(strcmp(buf,stick[n])){strcpy(stick[n],buf);changed=1;}}
+ return changed;
+}
 static void drawbutton(int i,int down){const struct button*b=&buttons[i];int x=L.btn[i].x,y=L.btn[i].y,w=L.btn[i].w,h=L.btn[i].h;
  box(x,y,w,h,down?0x536f84:b->color);int fs=L.col/7;if(fs<12)fs=12;
- if(b->sub){label(x+w/2,y+h/2-fs/2,b->label,fs,0xffffff);label(x+w/2,y+h/2+fs,b->sub,fs*3/4,0xd1dae2);}
+ const char *name=b->key==0x8002&&b->channel>=1&&b->channel<=2&&stick[b->channel-1][0]?stick[b->channel-1]:0;
+ if(name){label(x+w/2,y+h/2-fs,b->label,fs,0xffffff);label(x+w/2,y+h/2+fs/4,name,fs*3/4,0xffe08a);label(x+w/2,y+h/2+fs*5/4,b->sub,fs*3/4,0xd1dae2);}
+ else if(b->sub){label(x+w/2,y+h/2-fs/2,b->label,fs,0xffffff);label(x+w/2,y+h/2+fs,b->sub,fs*3/4,0xd1dae2);}
  else label(x+w/2,y+h/2,b->label,fs,0xffffff);}
+/* Status strip under the buttons: SoC temperature, red with "HOT" once the Pi 5 throttles (85 C), and LOW POWER when
+   the firmware reports under-voltage (hwmon rpi_volt). */
+static char status_text[32];static unsigned status_color;static char volt_alarm[160];
+static int read_status(void){
+ int mc=0;{FILE *tz=fopen("/sys/class/thermal/thermal_zone0/temp","r");if(tz){if(fscanf(tz,"%d",&mc)!=1)mc=0;fclose(tz);}}
+ int low=0;if(volt_alarm[0]){FILE *v=fopen(volt_alarm,"r");if(v){if(fscanf(v,"%d",&low)!=1)low=0;fclose(v);}}
+ char t[32];unsigned c;
+ if(low){snprintf(t,sizeof t,"LOW POWER");c=0xff5a4f;}
+ else if(mc>=84000){snprintf(t,sizeof t,"HOT %d\xb0" "C",mc/1000);c=0xff5a4f;}
+ else{snprintf(t,sizeof t,"%d\xb0" "C",mc/1000);c=mc>=78000?0xffa040:0x8796a3;}
+ if(!strcmp(t,status_text)&&c==status_color)return 0;
+ strcpy(status_text,t);status_color=c;return 1;
+}
+static void drawstatus(void){int fs=L.col/9;if(fs<10)fs=10;box(L.status.x,L.status.y,L.status.w,L.status.h,0x101820);
+ label(L.status.x+L.status.w/2,L.status.y+L.status.h/2,status_text,fs,status_color);}
 static long now_us(void){struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);return t.tv_sec*1000000L+t.tv_nsec/1000;}
 /* Bilinear sampling tables: for each content column/row, the source coordinate and the 8-bit weight of the next one. */
 static int *sx0,*fx,*sy0,*fy;
@@ -207,7 +234,10 @@ int main(int argc,char**argv){
  const char *chosen=getenv("RX3_FONT");
  if(!chosen||FT_New_Face(ft,chosen,0,&face)){chosen=0;for(int i=0;fonts[i];i++)if(!FT_New_Face(ft,fonts[i],0,&face)){chosen=fonts[i];break;}}
  if(!chosen){fprintf(stderr,"rx3-fb-present: no usable font found. Install one with:\n  sudo apt install fonts-dejavu-core\nOr point RX3_FONT at a .ttf. Looked for:\n");for(int i=0;fonts[i];i++)fprintf(stderr,"  %s\n",fonts[i]);return 1;}
- box(0,0,L.LW,L.LH,0x101820);for(int i=0;i<NBUTTONS;i++)drawbutton(i,0);unsigned drawn=0;
+ for(int i=0;i<16&&!volt_alarm[0];i++){char p[96],name[32]={0};snprintf(p,sizeof p,"/sys/class/hwmon/hwmon%d/name",i);FILE *f=fopen(p,"r");
+  if(!f)continue;if(fgets(name,sizeof name,f)&&!strncmp(name,"rpi_volt",8))snprintf(volt_alarm,sizeof volt_alarm,"/sys/class/hwmon/hwmon%d/in0_lcrit_alarm",i);fclose(f);}
+ read_sticks();read_status();
+ box(0,0,L.LW,L.LH,0x101820);for(int i=0;i<NBUTTONS;i++)drawbutton(i,0);drawstatus();unsigned drawn=0;long t_side=now_us();
  sx0=malloc(sizeof(int)*L.cw);fx=malloc(sizeof(int)*L.cw);sy0=malloc(sizeof(int)*L.ch);fy=malloc(sizeof(int)*L.ch);
  for(int i=0;i<L.cw;i++){double u=(i+0.5)/L.s-0.5;if(u<0)u=0;int u0=(int)u;if(u0>FW_W-2)u0=FW_W-2;sx0[i]=u0;fx[i]=(int)((u-u0)*256);if(fx[i]>255)fx[i]=255;if(nearest)fx[i]=fx[i]>=128?256:0;}
  for(int j=0;j<L.ch;j++){double u=(j+0.5)/L.s-0.5;if(u<0)u=0;int u0=(int)u;if(u0>FW_H-2)u0=FW_H-2;sy0[j]=u0;fy[j]=(int)((u-u0)*256);if(fy[j]>255)fy[j]=255;if(nearest)fy[j]=fy[j]>=128?256:0;}
@@ -228,8 +258,9 @@ int main(int argc,char**argv){
   if(have_snap)newframe=seq!=last_seq&&!(seq&1);
   else{/* Cheap signature of the live picture: one word in 61 (61 is odd, so rows and columns are both covered). */
    uint32_t sig=2166136261u;for(int i=0;i<FW_W*FW_H;i+=61)sig=(sig^live[i])*16777619u;newframe=sig!=last_sig;last_sig=sig;}
-  int buttons=state->pressed!=drawn,moved=curx!=last_curx||cury!=last_cury;
-  if(!newframe&&!buttons&&!moved&&!first){
+  int btnchg=state->pressed!=drawn,moved=curx!=last_curx||cury!=last_cury,sticks=0,status=0;
+  {long tn=now_us();if(tn-t_side>=2000000){t_side=tn;sticks=read_sticks();status=read_status();}}   /* every 2 s */
+  if(!newframe&&!btnchg&&!moved&&!sticks&&!status&&!first){
    if(have_snap){struct timespec ts={0,4000000};syscall(SYS_futex,seqp,FUTEX_WAIT,seq,&ts,0,0);}   /* a frame, or 4 ms for the buttons/cursor */
    else wait_vblank(dst);
    frames++;goto report;
@@ -248,8 +279,11 @@ int main(int argc,char**argv){
    }else take_frame(live,first);
    for(int j=0;j<L.ch;j++)if(rowdirty[sy0[j]]||rowdirty[sy0[j]+1])outdirty[L.cy+j]=1;
   }
-  if(buttons){for(int i=0;i<NBUTTONS;i++)if(((state->pressed^drawn)>>i)&1){drawbutton(i,(state->pressed>>i)&1);
+  if(btnchg){for(int i=0;i<NBUTTONS;i++)if(((state->pressed^drawn)>>i)&1){drawbutton(i,(state->pressed>>i)&1);
     for(int y=L.btn[i].y;y<L.btn[i].y+L.btn[i].h&&y<L.LH;y++)if(y>=0)outdirty[y]=1;}drawn=state->pressed;}
+  if(sticks)for(int i=0;i<NBUTTONS;i++)if(buttons[i].key==0x8002){drawbutton(i,(state->pressed>>i)&1);
+    for(int y=L.btn[i].y;y<L.btn[i].y+L.btn[i].h&&y<L.LH;y++)if(y>=0)outdirty[y]=1;}
+  if(status){drawstatus();for(int y=L.status.y;y<L.status.y+L.status.h&&y<L.LH;y++)if(y>=0)outdirty[y]=1;}
   if(moved){for(int y=last_cury;y<last_cury+22;y++)if(y>=0&&y<L.LH)outdirty[y]=1;for(int y=cury;y<cury+22;y++)if(y>=0&&y<L.LH)outdirty[y]=1;}
   scale_into_canvas();
   long ts=now_us();s_sum+=ts-t0;

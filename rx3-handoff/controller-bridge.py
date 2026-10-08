@@ -62,6 +62,8 @@ def deck_showing():
 
 # ---- MIDI note -> (key, channel-kind) for deck note channels (0x90/0x91) ----
 DECK_NOTES = {0x0B: 'play', 0x0C: 'cue', 0x3F: 'shift', 0x10: 'loopin', 0x11: 'loopout', 0x4D: 'reloop',
+              0x4C: 'loopin', 0x4E: 'loopout', 0x50: 'reloop',   # SHIFT + LOOP IN/OUT/RELOOP: during a loop, LOOP IN or
+              # LOOP OUT puts the RX3 in loop in/out adjust (turn the jog, press again to finish), as on the RX3 itself
               0x58: 'sync', 0x5C: 'master', 0x60: 'temporange', 0x54: 'hpcue', 0x36: 'jogtouch', 0x68: 'quantize',
               0x40: 'searchfwd', 0x3D: 'searchfwd', 0x3E: 'searchrev', 0x51: 'callprev', 0x53: 'callnext'}
 # SHIFT+PLAY (censor) is added per controller at start-up: 0x0E on the FLX4, 0x47 on the DDJ-400.
@@ -198,7 +200,7 @@ if CTL['keepalive']:
 def led(status, note, on):
     midi_write(bytes([status, note, 0x7F if on else 0x00]))
 
-PAD_MODES = [0x1B, 0x6D, 0x20, 0x22, 0x1E, 0x69, 0x6F]      # hot cue, beat loop, beat jump, sampler, pad fx1, keyboard, key shift
+PAD_MODES = [0x1B, 0x6D, 0x20, 0x22, 0x1E, 0x6B, 0x69, 0x6F]  # hot cue, beat loop, beat jump, sampler, pad fx1/2, keyboard, key shift
 # The FLX4 pads send a different note range per pad mode, and only switch range when the host lights that mode's
 # button, so every mode press relights the mode buttons. Three modes exist on the RX3 too; the rest have no RX3
 # equivalent and their pads are ignored.
@@ -242,6 +244,16 @@ class FirmwareLeds:
         return struct.unpack_from('<i', self.data, o)[0] if len(self.data) >= o + 4 else None
     def rgb(self, led_id, deck):
         o = 16 + (led_id * 2 + deck - 1) * 8; return tuple(self.data[o + 3:o + 6])
+    def active(self, led_id, deck, now=None):
+        # Loop and Beat FX lights: the RX3 keeps these lit as "available" (state 1) and uses state 2 (blinking) and
+        # 3 (on) for an active loop, loop adjust or a running effect. The FLX4 lights them only when active.
+        o = 16 + (led_id * 2 + deck - 1) * 8; e = self.data[o:o + 8]
+        if not e[0]: return False
+        if e[1] == 3: return True
+        if e[1] == 2:
+            period = e[6] | e[7] << 8 or 500
+            return ((now or time.time()) * 1000) % period < period / 2
+        return False
     def lit(self, led_id, deck, steady=False, now=None):
         o = 16 + (led_id * 2 + deck - 1) * 8; e = self.data[o:o + 8]
         if not e[0] or e[2] != 0: return False
@@ -250,7 +262,9 @@ class FirmwareLeds:
             return ((now or time.time()) * 1000) % period < period / 2
         return e[1] in (1, 2)
 firmware_leds = FirmwareLeds()
-DECK_LEDS = {1: 0x0B, 2: 0x0C, 4: 0x58, 7: 0x10, 8: 0x11, 50: 0x54}   # play, cue, beat sync, loop in, loop out, headphone cue
+DECK_LEDS = {1: 0x0B, 2: 0x0C, 4: 0x58, 9: 0x4D, 50: 0x54}   # play, cue, beat sync, reloop/exit (a loop is stored), headphone cue
+ACTIVE_LEDS = {7: 0x10, 8: 0x11}                               # loop in, loop out: only while a loop runs / is adjusted
+BEAT_FX_LED = 48                                               # BEAT FX ON/OFF: blinks while an effect is on (0x94/0x95 0x47)
 MASTER_CUE_LED = 51                                                    # mixer channel (0x96) note 0x63
 # VU meters: the RX3's own channel meter steps (ui::Mixer::MonoLvMeter::calcLedValue: 0-11 segments for -24..+14 dB,
 # table from the firmware), sent as 0-127 on CC 0x02 like Mixxx does; the FLX4 picks its segments from that.
@@ -278,10 +292,12 @@ def led_loop():
         if not firmware_leds.read(): continue
         now = time.time()
         led_set(0x96, 0x63, firmware_leds.lit(MASTER_CUE_LED, 1, now=now))
+        fx = firmware_leds.active(BEAT_FX_LED, 1, now=now); led_set(0x94, 0x47, fx); led_set(0x95, 0x47, fx)
         for d in (1, 2):
             vu = round(meter_step(firmware_leds.level_db(d)) * 127 / 11)
             if led_sent.get(('vu', d)) != vu: led_sent[('vu', d)] = vu; midi_write(bytes([0xB0 + d - 1, 0x02, vu]))
             for led_id, n in DECK_LEDS.items(): led_set(0x90 + d - 1, n, firmware_leds.lit(led_id, d, now=now))
+            for led_id, n in ACTIVE_LEDS.items(): led_set(0x90 + d - 1, n, firmware_leds.active(led_id, d, now=now))
             base = PAD_LAYER.get(pad_mode[d])
             if base is None: continue
             for i in range(8): led_set(0x97 + 2 * (d - 1), base + i, firmware_leds.lit(18 + i, d, now=now))

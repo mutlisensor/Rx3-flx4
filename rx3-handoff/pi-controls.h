@@ -24,14 +24,16 @@ static const struct button buttons[NBUTTONS]={
 };
 /* Logical canvas = the panel seen upright (LW x LH): rotation 0/180 keep W x H, 90/270 swap them.
    Content rectangle (cx,cy,cw,ch) holds the firmware picture at scale s; the sidebar is the last `col` columns. */
-struct layout {int W,H,rot,LW,LH,col,cx,cy,cw,ch;double s;struct {int x,y,w,h;} btn[NBUTTONS];};
+struct layout {int W,H,rot,LW,LH,col,cx,cy,cw,ch;double s;struct {int x,y,w,h;} btn[NBUTTONS],status;};
 static struct layout make_layout(int W,int H,int rot){
  struct layout L;L.W=W;L.H=H;L.rot=rot;int side=rot==90||rot==270;L.LW=side?H:W;L.LH=side?W:H;
  L.col=L.LW/10;double sx=(L.LW-L.col)*1.0/FW_W,sy=L.LH*1.0/FW_H;L.s=sx<sy?sx:sy;
  L.cw=(int)(FW_W*L.s);L.ch=(int)(FW_H*L.s);L.cx=(L.LW-L.col-L.cw)/2;L.cy=(L.LH-L.ch)/2;
- int pad=L.col/16,bw=L.col-2*pad,bh=(L.LH/2-3*pad)/2,x=L.LW-L.col+pad;
- int ys[NBUTTONS]={pad,2*pad+bh,L.LH/2+pad,L.LH/2+2*pad+bh};
+ /* Two pairs of buttons (SOURCE/BROWSE, USB STOP 1/2) and a status strip at the bottom (temperature, power). */
+ int pad=L.col/16,bw=L.col-2*pad,sh=L.col/4,x=L.LW-L.col+pad,half=(L.LH-sh)/2,bh=(half-3*pad)/2;
+ int ys[NBUTTONS]={pad,2*pad+bh,half+pad,half+2*pad+bh};
  for(int i=0;i<NBUTTONS;i++){L.btn[i].x=x;L.btn[i].y=ys[i];L.btn[i].w=bw;L.btn[i].h=bh;}
+ L.status.x=x;L.status.y=L.LH-sh;L.status.w=bw;L.status.h=sh-pad;
  return L;}
 /* Panel pixel -> logical pixel (rotation only; the canvas covers the whole panel). */
 static inline void panel_to_logical(const struct layout*L,int px,int py,int*lx,int*ly){

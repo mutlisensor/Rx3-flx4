@@ -18,7 +18,7 @@ case "$ACTION" in
       if [ "$(lower_of $PORT)" = "$DEV" ]; then
         sudo -u $RX3_USER python3 $H/rx3-control.py umount $PORT /media/$PORT/$PART 9>&-
         for mp in $R/media/$PORT/*; do mountpoint -q "$mp" && umount -l "$mp"; done
-        umount -l $U/$PORT/lower 2>/dev/null; rm -f $R/dev/$PART; $H/rx3-mtab.sh
+        umount -l $U/$PORT/lower 2>/dev/null; rm -f $R/dev/$PART $R/tmp/rx3-labels/$PORT; $H/rx3-mtab.sh
         logger -t rx3 "$PORT detached $DEV"
       fi
     done ;;

@@ -14,6 +14,13 @@ if ! mountpoint -q $R/dev/fb0; then
   [ -f $R/dev/fb0 ] || : > $R/dev/fb0
   mount --bind /run/rx3-fb0 $R/dev/fb0
 fi
+# /dev/gpiodrv: the firmware's GPIO lines. It writes their states to this file many times a second, at ever larger
+# offsets (megabytes a day), so keep it in RAM instead of on the SD card. Inputs read as 1 (not pressed).
+if ! mountpoint -q $R/dev/gpiodrv; then
+  python3 -c "open('/run/rx3-gpiodrv','wb').write(bytes([1])*4096)" && chown $RX3_UID:$RX3_GID /run/rx3-gpiodrv && chmod 664 /run/rx3-gpiodrv
+  [ -f $R/dev/gpiodrv ] || : > $R/dev/gpiodrv
+  mount --bind /run/rx3-gpiodrv $R/dev/gpiodrv
+fi
 # A real procfs for the player shim's own use (control-shim.c reads its memory map to find the firmware's LED state).
 # The chroot's /proc stays the firmware's fake one (mounts table, udev FIFOs).
 mkdir -p $R/hostproc; mountpoint -q $R/hostproc || mount -t proc proc $R/hostproc

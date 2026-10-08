@@ -29,6 +29,25 @@
 - Old layout note: on the TD2 the firmware UI ended up 960x600 px in a 1152x720 picture. `--replay` (rx3-tap.py) and
   `--mouse` feed canvas coordinates directly, independent of the panel.
 
+## Phase 1 (2026-10-09)
+
+- Stick names: UsbMountManager::run (0x320a28) asks libblkid for TYPE and LABEL of "/dev"+partition and keeps them,
+  but the SOURCE list (SetDeviceList 0x1c88ec and the touch-panel SourceSelect) draws the slot name; even a label
+  libblkid returns natively (FLOWRENS, vfat) is not shown. The chroot's libblkid returns nothing for exFAT.
+  DEVSETTING.DAT has no name field (brand, writer app/version, settings bytes). So usb-attach.sh writes the host's
+  label to <chroot>/tmp/rx3-labels/usbN and the presenter shows it on the USB STOP buttons.
+- Quantize: UiSetQuantizeOnOff(deck index 0/1, on) (0xfe184) -> PlayerSkeleton::setQuantizeOnOff, which posts a
+  message to the UI thread when called elsewhere. A stick's MY SETTINGS sets it per deck on load
+  (TotalMySet_UtilityPac_Unpac), so rx3-start.sh sends key 0xFFFE after attaching and the control shim applies
+  RX3_QUANTIZE. Firmware LED id 12 (Quantize) exists for deck 1 only.
+- Loop/FX LED states (firmware): LOOP IN/OUT 1 (lit, "available") when idle; looping: IN 2 (300 ms blink), OUT 3;
+  LOOP OUT again = out-adjust: OUT 2 (150 ms), IN off; RELOOP/EXIT (id 9) 1 once a loop is stored. FX ON/OFF (id 48)
+  1 idle, 2 (250 ms) while on. The bridge lights loop in/out and FX only for states 2/3.
+- Watchdog (rx3-watchdog.sh, unit rx3-watchdog): 60 s grace, then every 5 s: player gone, or a new "audio thread has
+  stopped writing" line not followed by "writing again" within 5 s -> systemctl restart rx3. Tested: kill -9 ->
+  new player in 10 s; fake stall line -> 15 s.
+- /dev/gpiodrv: bind of /run/rx3-gpiodrv (4096 x 0x01), like /dev/fb0.
+
 ## Heat (2026-10-08, perf branch)
 
 Measured with `vcgencmd pmic_read_adc` (VDD_CORE current x volt, 15 s averages), Pi 5, FLX4, TD2:

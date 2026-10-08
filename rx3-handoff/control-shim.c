@@ -123,6 +123,17 @@ static void *setup_thread(void *unused){
  }
  return 0;
 }
+/* Start-up quantize (rx3-start.sh sends key 0xFFFE once the sticks are attached, since a stick's MY SETTINGS can set
+   it per deck): RX3_QUANTIZE=on|off sets both decks; anything else leaves them alone. UiSetQuantizeOnOff(deck index,
+   on) hands the change to the UI thread as a message, so calling it from here is safe. */
+extern char *getenv(const char*);
+static void apply_quantize(void){
+ const char *q=getenv("RX3_QUANTIZE");if(!q)return;
+ int on=!strcmp(q,"on");if(!on&&strcmp(q,"off"))return;
+ void (*set)(int,int)=(void*)0xfe184;set(0,on);set(1,on);
+ const char m1[]="RX3 quantize: both decks on\n",m0[]="RX3 quantize: both decks off\n";
+ if(on)write(2,m1,sizeof(m1)-1);else write(2,m0,sizeof(m0)-1);
+}
 static void *control_thread(void *unused){
  sleep(3);
  int fd=open("/dev/rx3-control",O_RDWR);
@@ -150,6 +161,7 @@ static void *control_thread(void *unused){
  struct command c;unsigned have=0;
  for(;;){int n=read(fd,(char*)&c+have,sizeof(c)-have);if(n<=0){sleep(1);continue;}have+=n;if(have<sizeof(c))continue;have=0;
   if(c.key==0xFFFF){query_state();continue;}
+  if(c.key==0xFFFE){apply_quantize();continue;}
   if(c.key<0||c.key>65535||c.operation<0||c.operation>15||c.channel<0||c.channel>2)continue;
   sendkey(manager,c.key,c.operation,c.channel,c.value,c.analog,c.extra);
  }

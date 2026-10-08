@@ -132,6 +132,8 @@ Knobs for `rx3.conf`, on top of `RX3_FB` / `RX3_ROTATE`:
 | `RX3_CPU_MAX_MHZ=2000` | CPU clock cap while the player runs (default 2000; `0` = no cap). Lower clock, lower voltage, less heat |
 | `RX3_FW_IDLE_FPS=20` | Redraw rate when the screen is static (default 20; `0` = always full rate) |
 | `RX3_FW_FPS=30` | Cap the firmware's drawing at all times (default: none). Cooler, but the waveform scrolls less smoothly |
+| `RX3_QUANTIZE=off` | Quantize on both decks after the sticks attach: `off` (default), `on`, or `firmware` (leave it to the stick's MY SETTINGS) |
+| `RX3_AUTO_RESTART=1` | Restart the player if it exits or its audio stops (default `1`; `0` to leave it) |
 
 The presenter logs a line once a minute to `rx3-present.log`: frames shown per second, what share of the
 picture changed, and how long a frame took to scale and to copy to the panel. On a Pi 5 a playing deck is

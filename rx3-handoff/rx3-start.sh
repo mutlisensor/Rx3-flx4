@@ -74,7 +74,7 @@ chown $U:$U $R/dev/rx3-ui-state
 ulimit -r 99; ulimit -l unlimited; ulimit -c 0
 cd $RX3_USERHOME
 nohup chroot --userspec=$RX3_UID:$RX3_GID --groups=$RX3_GROUPS $R /bin/busybox sh -c \
-  "cd /root/pdj && exec env LD_PRELOAD=/lib/fbshim.so RX3_FW_IDLE_FPS=$RX3_FW_IDLE_FPS RX3_FW_FPS=$RX3_FW_FPS /root/pdj/rbp-pi -a" > $LOG 2>&1 < /dev/null &
+  "cd /root/pdj && exec env LD_PRELOAD=/lib/fbshim.so RX3_FW_IDLE_FPS=$RX3_FW_IDLE_FPS RX3_FW_FPS=$RX3_FW_FPS RX3_QUANTIZE=$RX3_QUANTIZE /root/pdj/rbp-pi -a" > $LOG 2>&1 < /dev/null &
 echo "player started (pid $!)"
 
 # --- host-side helpers: controller MIDI bridge, display presenter, touch bridge ------------------
@@ -110,5 +110,10 @@ $H/input-hotplug.sh     # touchscreen if present, else USB mouse
     sleep 0.5
   done
   for dev in /dev/sd?1; do [ -b "$dev" ] && RX3_USB_SETTLED=1 $H/usb-hotplug.sh add "$dev"; done
+  # Quantize: a stick's MY SETTINGS can set it per deck when the stick loads, so apply RX3_QUANTIZE after attaching
+  # (control-shim.c key 0xFFFE).
+  sleep 4; python3 -c "import os,struct; f=os.open('$R/dev/rx3-control',os.O_WRONLY|os.O_NONBLOCK); os.write(f,struct.pack('<iiiifi',0xFFFE,0,0,0,0.0,0))"
 ) > $RX3_USB.log 2>&1 < /dev/null &
+# Watchdog: restart the player if it exits or its audio thread stops (rx3-watchdog.sh, RX3_AUTO_RESTART).
+[ "$RX3_AUTO_RESTART" = 1 ] && { systemctl reset-failed rx3-watchdog.service 2>/dev/null; systemd-run --quiet --unit=rx3-watchdog --collect $H/rx3-watchdog.sh; }
 exit 0
