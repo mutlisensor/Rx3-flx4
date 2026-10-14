@@ -118,7 +118,21 @@ def note(status, n, vel):
         if n == 0x63 and down: beatfx_index = (beatfx_index + 1) % 14; send(K['fxselect'], 5, 0, beatfx_index, float(beatfx_index)); return
         if n == 0x64 and down: beatfx_index = (beatfx_index - 1) % 14; send(K['fxselect'], 5, 0, beatfx_index, float(beatfx_index)); return
         if n in (0x10, 0x11, 0x14) and down:   # CH SELECT slide -> RX3 values: 0 CH1, 1 CH2, 2 MIC, 3 CF.A, 4 CF.B, MASTER = FXCH_MASTER
-            sel = CTL['fxch'].get((ch, n), 'master'); sel = FXCH_MASTER if sel == 'master' else sel
+            # On the DDJ-FLX4 the "1 & 2" position does not send a distinct note: it
+            # fires both selector notes back-to-back -- (ch4, 0x10) then (ch5, 0x11).
+            # Without this debounce the second press overwrites the first, leaving
+            # Beat FX applied to one deck only. Only the FLX4 pattern is debounced;
+            # DDJ-400 sends CH2 on (ch4, 0x11), which never matches (ch5, 0x11).
+            if (ch, n) in ((4, 0x10), (5, 0x11)):
+                now = time.time()
+                fx_sel_last[(ch, n)] = now
+                other = (5, 0x11) if (ch, n) == (4, 0x10) else (4, 0x10)
+                if (now - fx_sel_last.get(other, 0)) < 0.04:
+                    sel = FXCH_BOTH
+                else:
+                    sel = CTL['fxch'].get((ch, n), 'master'); sel = FXCH_MASTER if sel == 'master' else sel
+            else:
+                sel = CTL['fxch'].get((ch, n), 'master'); sel = FXCH_MASTER if sel == 'master' else sel
             send(K['fxch'], 5, 0, sel, float(sel)); return
         return
     elif ch == 6:
@@ -322,6 +336,8 @@ def select_cfx():
 threading.Timer(2.0, select_cfx).start()
 beatfx_index = 0
 FXCH_MASTER = int(os.environ.get('RX3_FXCH_MASTER', '5'))
+FXCH_BOTH   = int(os.environ.get('RX3_FXCH_BOTH', str(FXCH_MASTER)))
+fx_sel_last = {}
 
 buf = b''
 with open(dev if dev != '-' else 0, 'rb', buffering=0) as f:
