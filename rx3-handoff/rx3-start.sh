@@ -1,5 +1,5 @@
 #!/bin/bash
-# Launch the XDJ-RX3 player (firmware 1.19) inside its chroot on this Raspberry Pi 5. Runs as root.
+# Launch the XDJ-RX3 player (firmware 1.19) inside its chroot on a Raspberry Pi 4 or 5. Runs as root.
 # Layout is resolved by rx3-env.sh: chroot $RX3_ROOT, tools $RX3_HOME, logs $RX3_LOGDIR/rx3-*.log
 set -u
 . "$(dirname "$(readlink -f "$0")")/rx3-env.sh"
@@ -11,6 +11,7 @@ if pgrep -x rbp-pi >/dev/null; then echo "RX3 player already running"; exit 0; f
 # The console on tty1 (Raspberry Pi OS autologins a shell there) keeps blinking its text cursor on the same
 # framebuffer the UI is drawn to. Hide it for the player's lifetime; rx3-stop.sh shows it again.
 [ -w /sys/class/graphics/fbcon/cursor_blink ] && echo 0 > /sys/class/graphics/fbcon/cursor_blink 2>/dev/null
+[ -w /sys/class/graphics/fb0/blank ] && echo 0 > /sys/class/graphics/fb0/blank 2>/dev/null
 [ -w /dev/tty1 ] && printf '\033[?25l' > /dev/tty1 2>/dev/null
 $H/mount-rx3.sh >/dev/null
 # Root helper that performs the firmware's own USB STOP unmounts (see rx3-priv.sh); its FIFO must exist before launch.
@@ -30,6 +31,10 @@ touch $R/dev/printkdrv0; mountpoint -q $R/dev/printkdrv0 || mount --bind /dev/nu
 
 # --- audio card: the first connected known DJ controller (controllers.py), else the ALSA loopback ---------
 CARD=""; CONTROLLER=""
+# Avoid power-cycling the Pi 4 BCM2711 USB hub during controller detection.
+# Keep the existing recovery behaviour on Pi 5 and other boards.
+PI4_USB=0
+if grep -aq "brcm,bcm2711" /proc/device-tree/compatible 2>/dev/null; then PI4_USB=1; fi
 # When the service starts well after power-on (it waits for the network), the kernel has long since enumerated
 # everything, so a controller that is still missing is wedged: cut its power straight away instead of waiting 10 s.
 first_cut=10; [ "$(cut -d. -f1 /proc/uptime)" -ge 10 ] && first_cut=1
@@ -41,7 +46,7 @@ for wait in $(seq 1 30); do                       # the controller can enumerate
   # switching (uhubctl "off" only disables the port; the device stays lit), but the RP1 has one USB_VBUS_EN
   # line for all ports, so cut that for a few seconds. Every USB device re-enumerates afterwards, which is
   # why this only runs before any media is attached, and at most twice.
-  if { [ $wait = $first_cut ] || [ $wait = $((first_cut + 12)) ]; } && ! findmnt -rn -o TARGET | grep -q "^$R/media/"; then
+  if [ "$PI4_USB" -eq 0 ] && { [ $wait = $first_cut ] || [ $wait = $((first_cut + 12)) ]; } && ! findmnt -rn -o TARGET | grep -q "^$R/media/"; then
     chip=$(gpioinfo 2>/dev/null | awk '/^gpiochip/{c=$1} /USB_VBUS_EN/{print c}' | head -1)
     if [ -n "$chip" ] && command -v gpioset >/dev/null; then
       logger -t rx3 "no DJ controller after ${wait}s: cutting USB power (USB_VBUS_EN on $chip) for 5 s"
