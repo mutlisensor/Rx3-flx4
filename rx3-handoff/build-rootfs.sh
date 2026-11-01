@@ -39,7 +39,7 @@ mkdir -p $H/pi-runtime
 cp -f $X/player/pdj/rbp $H/pi-runtime/rbp
 cd $H && python3 patch-player.py && cp -f rbp-pi $R/root/pdj/rbp-pi && chmod 755 $R/root/pdj/rbp-pi
 echo "== shim"
-cd $H && arm-linux-gnueabi-gcc -shared -fPIC -O2 -fomit-frame-pointer -fno-builtin -nostdlib -o $R/lib/fbshim.so fbshim.c control-shim.c
+cd $H && arm-linux-gnueabi-gcc -march=armv7-a -shared -fPIC -O2 -fomit-frame-pointer -fno-builtin -nostdlib -o $R/lib/fbshim.so fbshim.c control-shim.c
 echo "== disable vendor GPU driver (software DirectFB)"
 mkdir -p $R/usr/lib/disabled
 [ -e $R/usr/lib/directfb-1.4-0/gfxdrivers/libdirectfb_gal.so ] && mv $R/usr/lib/directfb-1.4-0/gfxdrivers/libdirectfb_gal.so $R/usr/lib/disabled/ || true
